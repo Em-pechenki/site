@@ -128,27 +128,101 @@ export default function Production({ snapshot }: { snapshot: any }) {
     }
   }
 
-  function Gantt({ timeline }: { timeline: any[] }) {
+  // «2 дн 4 ч 10 мин» из миллисекунд
+  function dur(ms: number) {
+    const m = Math.max(0, Math.round(ms / 60000));
+    const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60), mm = m % 60;
+    const parts: string[] = [];
+    if (d) parts.push(`${d} ${t('p_dur_d')}`);
+    if (h) parts.push(`${h} ${t('p_dur_h')}`);
+    if (mm || !parts.length) parts.push(`${mm} ${t('p_dur_m')}`);
+    return parts.join(' ');
+  }
+
+  function Gantt({ timeline, qty, skuLabel, readyIso }: { timeline: any[]; qty: number; skuLabel: string; readyIso?: string }) {
     if (!timeline?.length) return <div className="muted">{t('p_no_chart')}</div>;
     const t0 = new Date('2026-11-02T09:00:00+03:00').getTime();
     const t1 = new Date('2026-11-06T17:00:00+03:00').getTime();
     const span = t1 - t0;
-    const left = (iso: string) => `${Math.max(0, ((new Date(iso).getTime() - t0) / span) * 100)}%`;
+    const pos = (iso: string) => Math.max(0, Math.min(100, ((new Date(iso).getTime() - t0) / span) * 100));
     const width = (a: string, b: string) => `${Math.max(0.5, ((new Date(b).getTime() - new Date(a).getTime()) / span) * 100)}%`;
+    // Дни горизонта по МСК: ширина колонки = доля суток в горизонте,
+    // границы колонок и вертикальная сетка совпадают по построению
+    const MSK = 3 * 3600 * 1000;
+    const mskMidnight = (ms: number) => { const d = new Date(ms + MSK); d.setUTCHours(0, 0, 0, 0); return d.getTime() - MSK; };
+    const dayFmt = (ms: number) => new Intl.DateTimeFormat(lang === 'en' ? 'en-GB' : 'ru-RU', { timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit' }).format(new Date(ms));
+    const hmFmt = (ms: number) => new Intl.DateTimeFormat(lang === 'en' ? 'en-GB' : 'ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit' }).format(new Date(ms));
+    const days: { ms: number; hours: number; segStart: number; segEnd: number }[] = [];
+    for (let d = mskMidnight(t0); d < t1; d += 86400000) {
+      const segStart = Math.max(d, t0), segEnd = Math.min(d + 86400000, t1);
+      if (segEnd > segStart) days.push({ ms: d, hours: (segEnd - segStart) / 3600000, segStart, segEnd });
+    }
+    const totH = days.reduce((s, x) => s + x.hours, 0) || 1;
+    let acc = 0;
+    const bounds = days.slice(0, -1).map((d) => { acc += d.hours; return (acc / totH) * 100; });
+    const firstSub = days.length && days[0].segStart > days[0].ms ? ` · ${t('p_from')} ${hmFmt(days[0].segStart)}` : '';
+    const lastSub = days.length && days[days.length - 1].segEnd < days[days.length - 1].ms + 86400000
+      ? ` · ${t('p_to')} ${hmFmt(days[days.length - 1].segEnd)}` : '';
+    const first = timeline[0];
+    const finishIso = readyIso || timeline[timeline.length - 1].test_end;
+    const totalMs = new Date(finishIso).getTime() - new Date(first.assembly_start).getTime();
+    // Длительности операций первой штуки — для легенды
+    const asmMin = Math.round((new Date(first.assembly_end).getTime() - new Date(first.assembly_start).getTime()) / 60000);
+    const tstMin = Math.round((new Date(first.test_end).getTime() - new Date(first.test_start).getTime()) / 60000);
+    const dayOf = (iso: string) => fmtDate(iso).split(' ')[0];
+    const timeOf = (iso: string) => fmtDate(iso).split(' ')[1] || '';
+    // Время штуки: в пределах суток коротко, через ночь — с датами
+    const unitSpan = (u: any) => dayOf(u.assembly_start) === dayOf(u.test_end)
+      ? `${dayOf(u.assembly_start)} ${timeOf(u.assembly_start)}–${timeOf(u.test_end)}`
+      : `${fmtDate(u.assembly_start)} → ${fmtDate(u.test_end)}`;
+    const unitTitle = (u: any) =>
+      `${t('p_asm_tip')} ${fmtDate(u.assembly_start)}–${fmtDate(u.assembly_end)} · ${t('p_test_tip')} ${fmtDate(u.test_start)}–${fmtDate(u.test_end)}`;
+    const shown = timeline.slice(0, 30);
     return (
       <div className="gantt">
-        <div className="gantt-scale"><span>02.11 09:00</span><span>04.11</span><span>06.11 17:00</span></div>
-        {timeline.slice(0, 30).map((u: any) => (
-          <div key={u.unit} className="gantt-row">
-            <span className="gantt-label">#{u.unit}</span>
-            <div className="gantt-track">
-              <div className="g-asm" title={`${t('p_asm_tip')} ${fmtDate(u.assembly_start)}–${fmtDate(u.assembly_end)}`} style={{ left: left(u.assembly_start), width: width(u.assembly_start, u.assembly_end) }} />
-              <div className="g-tst" title={`${t('p_test_tip')} ${fmtDate(u.test_start)}–${fmtDate(u.test_end)}`} style={{ left: left(u.test_start), width: width(u.test_start, u.test_end) }} />
+        <div className="gantt-head">
+          <b>{t('p_gantt_h')} · {qty} × {skuLabel}</b>
+          <span className="mono">{fmtDate(first.assembly_start)} → {fmtDate(finishIso)} · {dur(totalMs)}</span>
+        </div>
+        <div className="gantt-inner">
+          <div className="gantt-row">
+            <span className="gantt-label" />
+            <div className="gantt-scale">
+              {days.map((d, i) => (
+                <div key={d.ms} className="gantt-day" style={{ flexGrow: d.hours }} title={`${dayFmt(d.ms)} 09:00–17:00`}>
+                  <b>{dayFmt(d.ms)}</b>
+                  {i === 0 && firstSub && <span>{firstSub}</span>}
+                  {i === days.length - 1 && lastSub && <span>{lastSub}</span>}
+                </div>
+              ))}
             </div>
+            <span className="gantt-time" />
           </div>
-        ))}
+          <div className="gantt-row gantt-colhead">
+            <span className="gantt-label">#</span>
+            <span style={{ flex: 1 }} />
+            <span className="gantt-time">{t('p_span_h')}</span>
+          </div>
+          {shown.map((u: any) => (
+            <div key={u.unit} className="gantt-row">
+              <span className="gantt-label">#{u.unit}</span>
+              <div className="gantt-track" title={unitTitle(u)}>
+                <div className="gantt-grid" aria-hidden="true">
+                  {bounds.map((b) => <i key={b} style={{ left: `${b}%` }} />)}
+                </div>
+                <div className="g-asm" style={{ left: `${pos(u.assembly_start)}%`, width: width(u.assembly_start, u.assembly_end) }} />
+                <div className="g-tst" style={{ left: `${pos(u.test_start)}%`, width: width(u.test_start, u.test_end) }} />
+              </div>
+              <span className="gantt-time" title={unitTitle(u)}>{unitSpan(u)}</span>
+            </div>
+          ))}
+        </div>
         {timeline.length > 30 && <div className="muted">{t('p_shown_of', { n: timeline.length })}</div>}
-        <div className="muted"><span className="legend-asm">■</span> {t('p_legend')}</div>
+        <div className="gantt-legend">
+          <span><i className="sw sw-asm" />{t('p_asm_tip')} · {asmMin} {t('p_dur_m')}</span>
+          <span><i className="sw sw-tst" />{t('p_test_tip')} · {tstMin} {t('p_dur_m')}</span>
+          <span className="muted hours">{t('p_legend_hours')}</span>
+        </div>
       </div>
     );
   }
@@ -273,8 +347,22 @@ export default function Production({ snapshot }: { snapshot: any }) {
               </div>
               </>
             )}
-            {plan.batch_ready_at && <div style={{ marginTop: 10 }}>{t('p_ready_at')}: <b className="mono">{fmtDate(plan.batch_ready_at)}</b></div>}
-            {plan.timeline?.length > 0 && <Gantt timeline={plan.timeline} />}
+            {plan.batch_ready_at && (
+              <div style={{ marginTop: 10 }}>
+                {t('p_ready_at')}: <b className="mono">{fmtDate(plan.batch_ready_at)}</b>
+                {plan.timeline?.length ? (
+                  <> · {qty} × {(sku === 'FG-AIR' ? 'air' : 'air plus')} · {dur(new Date(plan.batch_ready_at).getTime() - new Date(plan.timeline[0].assembly_start).getTime())}</>
+                ) : null}
+              </div>
+            )}
+            {plan.timeline?.length > 0 && (
+              <Gantt
+                timeline={plan.timeline}
+                qty={Number(qty)}
+                skuLabel={sku === 'FG-AIR' ? 'air' : 'air plus'}
+                readyIso={plan.batch_ready_at}
+              />
+            )}
           </div>
         )}
       </div>

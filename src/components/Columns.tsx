@@ -38,16 +38,22 @@ export function ColTh({ label, k, skey, dir, onSort, title, checked, onToggle }:
       title={title}
       aria-sort={active ? (dir === 1 ? 'ascending' : 'descending') : undefined}
     >
-      <input
-        type="checkbox"
-        className="col-check"
-        checked={checked}
-        title={t('col_check_title')}
-        aria-label={t('col_check_title') + ': ' + label}
-        onClick={(e) => e.stopPropagation()}
-        onChange={() => onToggle(k)}
-      />
-      <span className="col-label">{label}{active ? (dir === 1 ? ' ▲' : ' ▼') : ''}</span>
+      {/* flex-обёртка: галочка закреплена слева и не прыгает при переносе
+          подписи и появлении стрелки сортировки (у стрелки резерв места) */}
+      <span className="col-head">
+        <input
+          type="checkbox"
+          className="col-check"
+          checked={checked}
+          title={t('col_check_title')}
+          aria-label={t('col_check_title') + ': ' + label}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onChange={() => onToggle(k)}
+        />
+        <span className="col-label">{label}</span>
+        <span className="col-arrow" aria-hidden="true">{active ? (dir === 1 ? '▲' : '▼') : ''}</span>
+      </span>
     </th>
   );
 }

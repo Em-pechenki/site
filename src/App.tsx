@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { snapshot as fetchSnapshot, shipments as fetchShipments, isMockMode, onMockMode, setApiOverride, clearApiOverride, getApiOverride } from './api';
+import { snapshot as fetchSnapshot, shipments as fetchShipments, isMockMode, onMockMode, setApiOverride, clearApiOverride, getApiOverride, me as fetchMe, logout as apiLogout } from './api';
+import { getUser, clearAuth, onAuth, type AuthUser } from './auth';
 import { useT, tr, getLang } from './i18n';
 import { Prefs } from './components/Badges';
 import NavIcon from './components/NavIcon';
@@ -12,16 +13,19 @@ import Production from './pages/Production';
 import AiChat from './components/AiChat';
 import Landing from './pages/Landing';
 import Gid from './pages/Gid';
+import Auth from './pages/Auth';
 import { fmtDate } from './format';
 
 type Tab = 'dash' | 'orders' | 'ships' | 'staff' | 'scenario' | 'prod' | 'consult';
-type View = 'landing' | 'app' | 'gid';
+type View = 'landing' | 'auth' | 'app' | 'gid';
 
 export default function App() {
   const t = useT();
   const [view, setView] = useState<View>(() =>
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('gid') ? 'gid' : 'landing');
   const [tab, setTab] = useState<Tab>('orders');
+  const [user, setUser] = useState<AuthUser | null>(() => getUser());
+  const [pendingTab, setPendingTab] = useState<Tab>('orders');
   const [snap, setSnap] = useState<any>(null);
   const [ships, setShips] = useState<any[]>([]);
   const [mock, setMock] = useState(isMockMode());
@@ -90,13 +94,54 @@ export default function App() {
 
   useEffect(() => {
     load();
-    return onMockMode(setMock);
+    const off1 = onMockMode(setMock);
+    const off2 = onAuth(() => setUser(getUser()));
+    // проверяем сохранённый токен: протух — выходим молча
+    fetchMe()
+      .then((d: any) => {
+        if (d?.user) {
+          try {
+            const tok = localStorage.getItem('yabloki-auth-token') || '';
+            if (tok) {
+              localStorage.setItem('yabloki-auth-user', JSON.stringify(d.user));
+              setUser(d.user);
+            }
+          } catch { /* noop */ }
+        }
+      })
+      .catch(() => {
+        if (getUser()) {
+          // сервер недоступен — демо-режим: локальную сессию оставляем
+        } else {
+          clearAuth();
+        }
+      });
+    return () => {
+      off1();
+      off2();
+    };
   }, [load]);
 
   function enter(tt: Tab) {
+    if (!getUser()) {
+      setPendingTab(tt);
+      setView('auth');
+      window.scrollTo({ top: 0 });
+      return;
+    }
     setTab(tt);
     setView('app');
     window.scrollTo({ top: 0 });
+  }
+
+  async function doLogout() {
+    try {
+      await apiLogout();
+    } finally {
+      clearAuth();
+      setUser(null);
+      setView('landing');
+    }
   }
 
   function selectTab(tt: Tab) {
@@ -135,6 +180,22 @@ export default function App() {
     return (<><Gid onBack={() => setView('landing')} onEnter={enter} />{consultFab}</>);
   }
 
+  if (view === 'auth') {
+    return (
+      <>
+        <Auth
+          onDone={() => {
+            setUser(getUser());
+            setTab(pendingTab);
+            setView('app');
+            window.scrollTo({ top: 0 });
+          }}
+        />
+        {consultFab}
+      </>
+    );
+  }
+
   return (
     <div className={navCollapsed ? 'work-app nav-collapsed' : 'work-app'}>
       {/* Единственная верхняя панель приложения — все глобальные действия только здесь */}
@@ -151,6 +212,16 @@ export default function App() {
             <span className={mock ? 'fc-dot mock' : 'fc-dot'} />
             {mock ? t('demo') : t('online')} · {snap ? fmtDate(snap.now) : '—'}
           </span>
+          {user && (
+            <span className="work-user" title={user.email}>
+              {user.name}
+              {user.role === 'admin' && <span className="badge badge-blue">{t('a_admin_badge')}</span>}
+              {user.email === 'admin@demo.local' && <span className="badge badge-warn">{t('a_demo_badge')}</span>}
+              <button className="ghost small" onClick={doLogout}>
+                {t('a_logout')}
+              </button>
+            </span>
+          )}
           <Prefs />
         </div>
       </header>

@@ -1,5 +1,6 @@
 // fetch-обёртка к бэкенду + автоматический fallback на mock.ts
 import * as mock from './mock';
+import { getToken } from './auth';
 
 // Адрес бэкенда подбираем автоматически: перебираем кандидатов и берём того,
 // кто ответил на /api/health. Так одни и те же исходники работают и локально,
@@ -123,10 +124,15 @@ async function req(path: string, init?: RequestInit, timeoutMs = 4000): Promise<
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   let netFail = false;
   try {
+    const token = getToken();
     const r = await fetch(`${base}${path}`, {
       ...init,
       signal: ctrl.signal,
-      headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(init?.headers || {}),
+      },
     });
     const text = await r.text();
     let data: any = null;
@@ -361,6 +367,66 @@ export async function adminReset(fixture: 'simple' | 'extended') {
     await mockReady; setMock(true);
     const snap = mock.mockReset(fixture);
     return { ok: true, fixture, snapshot: snap };
+  }
+}
+
+export async function register(name: string, email: string, password: string) {
+  try {
+    return await req('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ name, email, password }),
+    });
+  } catch (e: any) {
+    if (e?.status && !isNetwork(e)) throw e;
+    await mockReady;
+    setMock(true);
+    try {
+      return mock.mockRegister(name, email, password);
+    } catch (m: any) {
+      mockError(m);
+    }
+  }
+}
+
+export async function login(email: string, password: string) {
+  try {
+    return await req('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+  } catch (e: any) {
+    if (e?.status && !isNetwork(e)) throw e;
+    await mockReady;
+    setMock(true);
+    try {
+      return mock.mockLogin(email, password);
+    } catch (m: any) {
+      mockError(m);
+    }
+  }
+}
+
+/** Обход для тестового показа заказчикам: вход как админ без пароля. */
+export async function demoAdminLogin() {
+  try {
+    return await req('/api/auth/demo', { method: 'POST' });
+  } catch (e: any) {
+    if (e?.status && !isNetwork(e)) throw e;
+    await mockReady;
+    setMock(true);
+    return mock.mockDemoAdmin();
+  }
+}
+
+export async function me() {
+  return await req('/api/auth/me');
+}
+
+export async function logout() {
+  try {
+    await req('/api/auth/logout', { method: 'POST' });
+  } catch {
+    /* noop — локальный выход всё равно выполняем */
   }
 }
 

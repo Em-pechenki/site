@@ -923,3 +923,89 @@ function ruleBased(question: string, snapshot: any, facts: any, lang: 'ru' | 'en
 
 export function mockFixtureName() { return fixtureName; }
 export { isoOut };
+
+// ---- Auth-мок (демо-режим без сервера): пользователи в этом браузере ----
+const MOCK_USERS_KEY = 'yabloki-mock-users';
+
+interface MockUser {
+  id: string;
+  name: string;
+  email: string;
+  pwd: string;
+  role: string;
+  created_at: string;
+}
+
+function readMockUsers(): MockUser[] {
+  try {
+    return JSON.parse(localStorage.getItem(MOCK_USERS_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function writeMockUsers(users: MockUser[]) {
+  try {
+    localStorage.setItem(MOCK_USERS_KEY, JSON.stringify(users));
+  } catch {
+    /* noop */
+  }
+}
+
+function mockToken(u: MockUser): string {
+  return `mock-${u.id}-${Date.now().toString(36)}`;
+}
+
+function publicMock(u: MockUser) {
+  return { id: u.id, name: u.name, email: u.email, role: u.role, created_at: u.created_at };
+}
+
+export function mockRegister(name: string, email: string, password: string) {
+  const nm = (name || '').trim();
+  const em = (email || '').trim().toLowerCase();
+  if (nm.length < 2) mockErr(400, 'Укажите имя (минимум 2 символа)', '');
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) mockErr(400, 'Некорректный email', 'Пример: ivan@company.ru');
+  if ((password || '').length < 6) mockErr(400, 'Пароль слишком короткий (минимум 6 символов)', '');
+  const users = readMockUsers();
+  if (users.some((u) => u.email === em)) mockErr(409, `Email ${em} уже зарегистрирован`, 'Войдите или используйте другой email');
+  const u: MockUser = {
+    id: `USR-${String(users.length + 1).padStart(3, '0')}`,
+    name: nm,
+    email: em,
+    pwd: password,
+    role: users.length === 0 ? 'admin' : 'user',
+    created_at: nowStr,
+  };
+  users.push(u);
+  writeMockUsers(users);
+  return { token: mockToken(u), user: publicMock(u) };
+}
+
+export function mockLogin(email: string, password: string) {
+  const em = (email || '').trim().toLowerCase();
+  const users = readMockUsers();
+  const u = users.find((x) => x.email === em);
+  if (!u || u.pwd !== password) mockErr(401, 'Неверный email или пароль', 'Проверьте данные или зарегистрируйтесь');
+  return { token: mockToken(u!), user: publicMock(u!) };
+}
+
+export function mockDemoAdmin() {
+  const users = readMockUsers();
+  let admin = users.find((u) => u.email === 'admin@demo.local');
+  if (!admin) {
+    admin = {
+      id: users.length === 0 ? 'USR-001' : `USR-${String(users.length + 1).padStart(3, '0')}`,
+      name: 'Демо Админ',
+      email: 'admin@demo.local',
+      pwd: 'demo-disabled',
+      role: 'admin',
+      created_at: nowStr,
+    };
+    users.push(admin);
+    writeMockUsers(users);
+  } else if (admin.role !== 'admin') {
+    admin.role = 'admin';
+    writeMockUsers(users);
+  }
+  return { token: mockToken(admin), user: publicMock(admin) };
+}
