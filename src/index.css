@@ -1210,6 +1210,7 @@ ul li { margin-bottom: 5px; color: var(--muted-fg); font-size: 14px; font-weight
   font-size: 13.5px;
   color: var(--muted-fg);
   white-space: nowrap;
+  cursor: pointer;
 }
 .work-brand b { color: var(--foreground); font-weight: 600; }
 .work-top-right {
@@ -1455,7 +1456,7 @@ ul li { margin-bottom: 5px; color: var(--muted-fg); font-size: 14px; font-weight
   .work-top {
     display: grid;
     grid-template-columns: auto 1fr;
-    grid-template-areas: "logo side" "home side";
+    grid-template-areas: "logo side";
     gap: 8px 12px;
     align-items: center;
     height: auto;
@@ -1465,8 +1466,9 @@ ul li { margin-bottom: 5px; color: var(--muted-fg); font-size: 14px; font-weight
   }
   .work-top > * { min-width: 0; }
   .work-brand { grid-area: logo; }
-  .work-brand .fc-logo-img.sm { width: 38px; height: 38px; }
-  .work-back { grid-area: home; justify-self: start; }
+  .work-brand .fc-logo-img.sm { width: 46px; height: 46px; }
+  /* Кнопки «Главная» нет — на главную ведёт клик по логотипу */
+  .work-back { display: none; }
   .work-top-right {
     grid-area: side;
     margin-left: 0;
@@ -1712,9 +1714,30 @@ img, svg, table { max-width: 100%; }
 }
 .modal-dialog .ai-chat { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .modal-dialog .ai-history { flex: 1; max-height: none; min-height: 120px; }
+/* В модалке диалог важнее витрины: когда переписка начата, описание прячем,
+   а подсказки схлопываем в одну горизонтальную ленту — место отдаём чату */
+.modal-dialog .ai-chat.has-history > .muted { display: none; }
+.modal-dialog .ai-chat.has-history .chips {
+  display: flex; flex-wrap: nowrap; overflow-x: auto;
+  gap: 8px; margin: 10px 0 2px; padding-bottom: 6px;
+  -webkit-overflow-scrolling: touch; scrollbar-width: thin;
+}
+.modal-dialog .ai-chat.has-history .chip {
+  flex-shrink: 0; white-space: nowrap; min-height: 0;
+  padding: 7px 14px !important; font-size: 12px !important;
+}
 @media (max-width: 640px) {
   .modal-overlay { padding: 12px; }
   .modal-dialog { height: calc(100dvh - 24px); padding: 16px; border-radius: 16px; }
+  /* Модалка консультанта: максимум высоты — переписке, всё остальное ужато */
+  .modal-dialog .ai-chat h3 { font-size: 16px; margin-bottom: 4px; }
+  .modal-dialog .ai-chat > .muted { font-size: 12.5px; line-height: 1.55; }
+  .modal-dialog .chips { margin: 12px 0 2px; gap: 8px; }
+  .modal-dialog .chip { font-size: 12px !important; padding: 8px 14px !important; }
+  .modal-dialog .ai-history { margin: 12px 0 8px; }
+  .modal-dialog .ai-row { flex-wrap: nowrap; margin-top: 10px; }
+  .modal-dialog .ai-row input { flex: 1 1 auto; min-width: 0; }
+  .modal-dialog .ai-row button { flex-shrink: 0; min-width: 0; margin: 0; padding-left: 18px; padding-right: 18px; }
 }
 .modal-head {
   display: flex;

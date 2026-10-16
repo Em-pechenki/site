@@ -203,7 +203,14 @@ export default function App() {
         <button className="work-back" onClick={() => setView('landing')} title={t('back_home')}>
           {t('back_home')}
         </button>
-        <div className="work-brand">
+        <div
+          className="work-brand"
+          onClick={() => setView('landing')}
+          title={t('back_home')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setView('landing'); } }}
+        >
           <img className="fc-logo-img sm" src="./yabloki-logo.png" alt="ЯблокИИ" />
           <span><b>Яблок<span className="ii">ИИ</span></b></span>
         </div>
@@ -214,8 +221,9 @@ export default function App() {
           </span>
           {user && (
             <span className="work-user" title={user.email}>
-              <span className="u-name">{user.name}</span>
-              {user.role === 'admin' && <span className="badge badge-blue">{t('a_admin_badge')}</span>}
+              {user.role === 'admin'
+                ? <span className="badge badge-blue">{t('a_admin_badge')}</span>
+                : <span className="u-name">{user.name}</span>}
               <button className="ghost small" onClick={doLogout}>
                 {t('a_logout')}
               </button>

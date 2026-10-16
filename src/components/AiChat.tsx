@@ -82,7 +82,7 @@ export default function AiChat({
   }
 
   return (
-    <div className={compact ? 'ai-chat compact' : 'ai-chat'}>
+    <div className={(compact ? 'ai-chat compact' : 'ai-chat') + (msgs.length ? ' has-history' : '')}>
       <div className="fc-section-label" style={{ marginBottom: 10 }}>
         {isConsult ? t('ai_label_c') : t('ai_label_a')}
       </div>
