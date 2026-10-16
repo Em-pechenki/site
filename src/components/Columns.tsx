@@ -52,28 +52,6 @@ export function ColTh({ label, k, skey, dir, onSort, title, checked, onToggle }:
   );
 }
 
-/** Заголовок без сортировки, только с галочкой видимости (для колонки действий). */
-export function ActTh({ label, k, checked, onToggle }: {
-  label: string; k: string;
-  checked: boolean; onToggle: (k: string) => void;
-}) {
-  const t = useT();
-  return (
-    <th className={checked ? '' : 'col-off'}>
-      <input
-        type="checkbox"
-        className="col-check"
-        checked={checked}
-        title={t('col_check_title')}
-        aria-label={t('col_check_title') + ': ' + label}
-        onClick={(e) => e.stopPropagation()}
-        onChange={() => onToggle(k)}
-      />
-      <span className="col-label">{label}</span>
-    </th>
-  );
-}
-
 /** Оставить в строках только видимые колонки. colMap: ключ сортировки -> ключ(и) строки выгрузки. */
 export function visibleRows(
   rows: Record<string, unknown>[],

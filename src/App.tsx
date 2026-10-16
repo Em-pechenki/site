@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { snapshot as fetchSnapshot, shipments as fetchShipments, isMockMode, onMockMode, setApiOverride, clearApiOverride, getApiOverride } from './api';
 import { useT, tr, getLang } from './i18n';
 import { Prefs } from './components/Badges';
 import NavIcon from './components/NavIcon';
-import Brief from './pages/Brief';
 import Dashboard from './pages/Dashboard';
 import Orders from './pages/Orders';
 import Shipments from './pages/Shipments';
+import Staff from './pages/Staff';
 import Scenario from './pages/Scenario';
 import Production from './pages/Production';
 import AiChat from './components/AiChat';
@@ -14,14 +14,14 @@ import Landing from './pages/Landing';
 import Gid from './pages/Gid';
 import { fmtDate } from './format';
 
-type Tab = 'brief' | 'dash' | 'orders' | 'ships' | 'scenario' | 'prod' | 'ai' | 'consult';
+type Tab = 'dash' | 'orders' | 'ships' | 'staff' | 'scenario' | 'prod' | 'ai' | 'consult';
 type View = 'landing' | 'app' | 'gid';
 
 export default function App() {
   const t = useT();
   const [view, setView] = useState<View>(() =>
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('gid') ? 'gid' : 'landing');
-  const [tab, setTab] = useState<Tab>('brief');
+  const [tab, setTab] = useState<Tab>('orders');
   const [snap, setSnap] = useState<any>(null);
   const [ships, setShips] = useState<any[]>([]);
   const [mock, setMock] = useState(isMockMode());
@@ -44,10 +44,10 @@ export default function App() {
   }
 
   const NAV: { id: Tab; label: string; hint: string }[] = [
-    { id: 'brief', label: t('nav_brief'), hint: t('nav_brief_hint') },
     { id: 'dash', label: t('nav_dash'), hint: t('nav_dash_hint') },
     { id: 'orders', label: t('nav_orders'), hint: t('nav_orders_hint') },
     { id: 'ships', label: t('nav_ships'), hint: t('nav_ships_hint') },
+    { id: 'staff', label: t('nav_staff'), hint: t('nav_staff_hint') },
     { id: 'scenario', label: t('nav_scenario'), hint: t('nav_scenario_hint') },
     { id: 'prod', label: t('nav_prod'), hint: t('nav_prod_hint') },
     { id: 'ai', label: t('nav_ai'), hint: t('nav_ai_hint') },
@@ -56,10 +56,10 @@ export default function App() {
 
   /* Короткие подписи для нижней таб-панели на мобильных */
   const TABBAR: { id: Tab; label: string }[] = [
-    { id: 'brief', label: t('tab_brief') },
     { id: 'dash', label: t('tab_dash') },
     { id: 'orders', label: t('tab_orders') },
     { id: 'ships', label: t('tab_ships') },
+    { id: 'staff', label: t('tab_staff') },
     { id: 'scenario', label: t('tab_scenario') },
     { id: 'prod', label: t('tab_prod') },
     { id: 'ai', label: t('tab_ai') },
@@ -67,10 +67,10 @@ export default function App() {
   ];
 
   const SECTION: Record<Tab, { h: string; lead: string }> = {
-    brief: { h: t('sec_brief_h'), lead: t('sec_brief_lead') },
     dash: { h: t('sec_dash_h'), lead: t('sec_dash_lead') },
     orders: { h: t('sec_orders_h'), lead: t('sec_orders_lead') },
     ships: { h: t('sec_ships_h'), lead: t('sec_ships_lead') },
+    staff: { h: t('sec_staff_h'), lead: t('sec_staff_lead') },
     scenario: { h: t('sec_scenario_h'), lead: t('sec_scenario_lead') },
     prod: { h: t('sec_prod_h'), lead: t('sec_prod_lead') },
     ai: { h: t('sec_ai_h'), lead: t('sec_ai_lead') },
@@ -107,20 +107,7 @@ export default function App() {
     window.scrollTo({ top: 0 });
   }
 
-  const atRisk = snap?.kpi?.at_risk || 0;
-  const activeCount = snap?.kpi?.active_orders ?? 0;
   const sec = SECTION[tab];
-
-  const counts: Record<Tab, number | null> = useMemo(() => ({
-    brief: atRisk > 0 ? atRisk : null,
-    dash: null,
-    orders: activeCount || null,
-    ships: snap?.kpi?.expected_shipments ?? null,
-    scenario: atRisk > 0 ? atRisk : null,
-    prod: null,
-    ai: null,
-    consult: null,
-  }), [activeCount, snap, atRisk]);
 
   const [consultOpen, setConsultOpen] = useState(false);
 
@@ -199,11 +186,6 @@ export default function App() {
                   <span className="work-nav-label">{n.label}</span>
                   <span className="work-nav-hint">{n.hint}</span>
                 </span>
-                {counts[n.id] != null && (
-                  <span className={n.id === 'scenario' && atRisk > 0 ? 'work-count risk' : 'work-count'}>
-                    {counts[n.id]}
-                  </span>
-                )}
               </button>
             ))}
           </nav>
@@ -241,10 +223,10 @@ export default function App() {
           </div>
 
           <div className="work-card" key={tab}>
-            {tab === 'brief' && <Brief snapshot={snap} shipmentsAll={ships} />}
             {tab === 'dash' && <Dashboard snapshot={snap} shipmentsAll={ships} />}
             {tab === 'orders' && <Orders snapshot={snap} onChange={load} />}
             {tab === 'ships' && <Shipments snapshot={snap} shipmentsAll={ships} onChange={load} />}
+            {tab === 'staff' && <Staff snapshot={snap} />}
             {tab === 'scenario' && <Scenario snapshot={snap} />}
             {tab === 'prod' && <Production snapshot={snap} />}
             {/* Оба чата всегда смонтированы: история не теряется при переключении */}
@@ -269,11 +251,6 @@ export default function App() {
           >
             <span className="work-tab-ic"><NavIcon id={n.id} /></span>
             <span className="work-tab-label">{n.label}</span>
-            {counts[n.id] != null && (
-              <span className={n.id === 'scenario' && atRisk > 0 ? 'work-tab-count risk' : 'work-tab-count'}>
-                {counts[n.id]}
-              </span>
-            )}
           </button>
         ))}
       </nav>

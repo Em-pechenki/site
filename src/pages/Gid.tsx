@@ -9,12 +9,11 @@ export default function Gid({
 }) {
   const t = useT();
   const steps: { n: string; t: string; d: string; tab: any; btn: string }[] = [
-    { n: '00', t: t('g0t'), tab: 'brief', btn: t('g0b'), d: t('g0d') },
-    { n: '01', t: t('g1t'), tab: 'dash', btn: t('g1b'), d: t('g1d') },
-    { n: '02', t: t('g2t'), tab: 'orders', btn: t('g2b'), d: t('g2d') },
-    { n: '03', t: t('g3t'), tab: 'scenario', btn: t('g3b'), d: t('g3d') },
-    { n: '04', t: t('g4t'), tab: 'consult', btn: t('g4b'), d: t('g4d') },
-    { n: '05', t: t('g5t'), tab: 'prod', btn: t('g5b'), d: t('g5d') },
+    { n: '00', t: t('g1t'), tab: 'dash', btn: t('g1b'), d: t('g1d') },
+    { n: '01', t: t('g2t'), tab: 'orders', btn: t('g2b'), d: t('g2d') },
+    { n: '02', t: t('g3t'), tab: 'scenario', btn: t('g3b'), d: t('g3d') },
+    { n: '03', t: t('g4t'), tab: 'consult', btn: t('g4b'), d: t('g4d') },
+    { n: '04', t: t('g5t'), tab: 'prod', btn: t('g5b'), d: t('g5d') },
   ];
 
   return (

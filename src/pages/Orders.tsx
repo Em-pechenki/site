@@ -6,7 +6,7 @@ import { logOp } from '../opslog';
 import { downloadCsv, downloadJson } from '../export';
 import { useT, useLang } from '../i18n';
 import { useSorted, type Accessors } from '../components/SortTable';
-import { ColTh, ActTh, useColumns, visibleRows } from '../components/Columns';
+import { ColTh, useColumns, visibleRows } from '../components/Columns';
 import ProductPicker, { useCatalog } from '../components/ProductPicker';
 
 export default function Orders({ snapshot, onChange }: { snapshot: any; onChange: () => void }) {
@@ -299,7 +299,7 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
           </div>
         </div>
         <div className="tbl-wrap">
-          <table className="tbl">
+          <table className="tbl tbl-compact">
             <thead>
               <tr>
                 <ColTh label={t('o_th_order')} k="id" skey={skey} dir={dir} onSort={toggle} title={t('sort_title')} checked={!openCols.isOff('id')} onToggle={openCols.toggleCol} />
@@ -309,7 +309,7 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
                 <ColTh label={t('o_th_booked')} k="booked" skey={skey} dir={dir} onSort={toggle} title={t('sort_title')} checked={!openCols.isOff('booked')} onToggle={openCols.toggleCol} />
                 <ColTh label={t('o_th_ready')} k="ready" skey={skey} dir={dir} onSort={toggle} title={t('sort_title')} checked={!openCols.isOff('ready')} onToggle={openCols.toggleCol} />
                 <ColTh label={t('o_th_state')} k="state" skey={skey} dir={dir} onSort={toggle} title={t('sort_title')} checked={!openCols.isOff('state')} onToggle={openCols.toggleCol} />
-                <ActTh label={t('th_actions')} k="actions" checked={!openCols.isOff('actions')} onToggle={openCols.toggleCol} />
+                <th>{t('th_actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -322,7 +322,7 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
                   <td className={openCols.isOff('booked') ? 'mono col-off' : 'mono'}>{o.reserved_qty}</td>
                   <td className={openCols.isOff('ready') ? 'col-off' : ''}>{o.readiness ? fmtDate(o.readiness) : <span className="badge badge-red">{t('o_short_is', { n: o.shortage })}</span>}</td>
                   <td className={openCols.isOff('state') ? 'col-off' : ''}><RiskBadge atRisk={o.atRisk} shortage={o.shortage} /></td>
-                  <td style={{ whiteSpace: 'nowrap' }} className={openCols.isOff('actions') ? 'col-off' : ''}>
+                  <td style={{ whiteSpace: 'nowrap' }}>
                     <span className="actions-box">
                     <input
                       type="number"
@@ -355,14 +355,14 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
         <div className="card">
           <h3><span className="n">02</span> {t('o_closed_h')}</h3>
           <div className="tbl-wrap">
-            <table className="tbl">
+            <table className="tbl tbl-compact">
               <thead><tr>
                 <ColTh label={t('o_th_num')} k="id" skey={cKey} dir={cDir} onSort={cToggle} title={t('sort_title')} checked={!closedCols.isOff('id')} onToggle={closedCols.toggleCol} />
                 <ColTh label={t('o_th_customer')} k="customer" skey={cKey} dir={cDir} onSort={cToggle} title={t('sort_title')} checked={!closedCols.isOff('customer')} onToggle={closedCols.toggleCol} />
                 <ColTh label={t('o_th_product')} k="sku" skey={cKey} dir={cDir} onSort={cToggle} title={t('sort_title')} checked={!closedCols.isOff('sku')} onToggle={closedCols.toggleCol} />
                 <ColTh label={t('o_th_qty')} k="qty" skey={cKey} dir={cDir} onSort={cToggle} title={t('sort_title')} checked={!closedCols.isOff('qty')} onToggle={closedCols.toggleCol} />
                 <ColTh label={t('o_th_state')} k="state" skey={cKey} dir={cDir} onSort={cToggle} title={t('sort_title')} checked={!closedCols.isOff('state')} onToggle={closedCols.toggleCol} />
-                <ActTh label={t('th_actions')} k="actions" checked={!closedCols.isOff('actions')} onToggle={closedCols.toggleCol} />
+                <th>{t('th_actions')}</th>
               </tr></thead>
               <tbody>
                 {sortedClosed.map((o: any) => (
@@ -372,7 +372,7 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
                     <td className={closedCols.isOff('sku') ? 'col-off' : ''}>{o.sku}</td>
                     <td className={closedCols.isOff('qty') ? 'col-off' : ''}>{o.quantity}</td>
                     <td className={closedCols.isOff('state') ? 'col-off' : ''}><StatusBadge status={o.status} /></td>
-                    <td style={{ whiteSpace: 'nowrap' }} className={closedCols.isOff('actions') ? 'col-off' : ''}>
+                    <td style={{ whiteSpace: 'nowrap' }}>
                       {o.status === 'shipped' && (o.shipped_qty ?? o.quantity) > 0 && (
                         <button className="ghost small" title={t('o_cancel_ship_title', { n: o.shipped_qty ?? o.quantity })} onClick={() => doCancelShip(o)}>{t('o_cancel_ship')}</button>
                       )}

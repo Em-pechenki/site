@@ -3,7 +3,7 @@ import { useT } from '../i18n';
 import { Prefs } from '../components/Badges';
 import FirecodeLogo from '../components/FirecodeLogo';
 
-export type LandingTab = 'brief' | 'dash' | 'orders' | 'ships' | 'scenario' | 'prod' | 'ai' | 'consult';
+export type LandingTab = 'dash' | 'orders' | 'ships' | 'staff' | 'scenario' | 'prod' | 'ai' | 'consult';
 
 export default function Landing({
   snap,
@@ -62,7 +62,7 @@ export default function Landing({
               {t('l_hero_lead')}
             </p>
             <div className="fc-hero-cta">
-              <button className="btn-indigo" onClick={() => onEnter('brief')}>{t('l_open')}</button>
+              <button className="btn-indigo" onClick={() => onEnter('orders')}>{t('l_open')}</button>
             </div>
           </div>
 
@@ -183,7 +183,7 @@ export default function Landing({
             <span>
               <button className="link" onClick={onGuide}>{t('l_guide')}</button>
               {' · '}
-              <button className="link" onClick={() => onEnter('brief')}>{t('l_open_link')}</button>
+              <button className="link" onClick={() => onEnter('orders')}>{t('l_open_link')}</button>
             </span>
           </div>
         </div>

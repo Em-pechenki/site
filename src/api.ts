@@ -136,7 +136,7 @@ async function req(path: string, init?: RequestInit, timeoutMs = 4000): Promise<
       throw new TypeError('fetch: not an api response');
     }
     if (!r.ok) {
-      const err: any = new Error(data?.error || `HTTP ${r.status}`);
+      const err: any = new Error(data?.error || data?.detail || `HTTP ${r.status}`);
       err.status = r.status;
       err.hint = data?.hint || '';
       err.data = data;
@@ -286,6 +286,21 @@ export async function delayScenario(shipment_id: string, new_expected_at: string
     if (e?.status >= 400 && e?.status < 500 && !isNetwork(e) && !mockMode) throw e;
     await mockReady; setMock(true);
     try { return mock.mockDelay(shipment_id, new_expected_at); } catch (m: any) { mockError(m); }
+  }
+}
+
+export async function employees() {
+  try { return await req('/api/employees'); }
+  catch { await mockReady; setMock(true); return mock.mockEmployees(); }
+}
+
+export async function assignShipment(shipmentId: string, opts?: { employee_id?: string; auto?: boolean }) {
+  const body = { employee_id: opts?.employee_id ?? null, auto: opts?.auto ?? !opts?.employee_id };
+  try { return await req(`/api/shipments/${encodeURIComponent(shipmentId)}/assign`, { method: 'POST', body: JSON.stringify(body) }); }
+  catch (e: any) {
+    if (e?.status >= 400 && e?.status < 500 && !isNetwork(e) && !mockMode) throw e;
+    await mockReady; setMock(true);
+    try { return mock.mockAssign(shipmentId, opts?.employee_id, body.auto); } catch (m: any) { mockError(m); }
   }
 }
 

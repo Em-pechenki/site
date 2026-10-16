@@ -14,7 +14,7 @@ export interface Order {
 }
 export interface Shipment {
   shipment_id: string; supplier: string; sku: string; quantity: number;
-  expected_at: string; status: string;
+  expected_at: string; status: string; assignee?: string | null;
 }
 export interface StockView { sku: string; on_hand: number; reserved: number; free: number }
 
@@ -50,6 +50,79 @@ let operationMinutes: Record<string, { assembly: number; test: number }> = {
 };
 let nowStr = '2026-11-02T09:00:00+03:00';
 let activeBatch: any = null;
+export interface Employee { id: string; name: string; role: string; schedule: Record<string, [string, string]> }
+let employees: Employee[] = [];
+
+const EMP_SEED: Employee[] = [
+  { id: 'EMP-01', name: 'Анна Соколова', role: 'lead', schedule: { '1': ['09:00', '17:00'], '2': ['09:00', '17:00'], '3': ['09:00', '17:00'], '4': ['09:00', '17:00'], '5': ['09:00', '17:00'] } },
+  { id: 'EMP-02', name: 'Дмитрий Ким', role: 'receiver', schedule: { '1': ['09:00', '17:00'], '2': ['09:00', '17:00'], '3': ['09:00', '17:00'], '4': ['09:00', '17:00'], '5': ['09:00', '17:00'] } },
+  { id: 'EMP-03', name: 'Ольга Миронова', role: 'receiver', schedule: { '1': ['09:00', '17:00'], '2': ['09:00', '17:00'], '3': ['09:00', '17:00'], '4': ['09:00', '17:00'], '5': ['09:00', '17:00'] } },
+  { id: 'EMP-04', name: 'Сергей Ветров', role: 'keeper', schedule: { '1': ['09:00', '17:00'], '2': ['09:00', '17:00'], '3': ['09:00', '17:00'], '4': ['09:00', '17:00'], '5': ['09:00', '17:00'] } },
+  { id: 'EMP-05', name: 'Игорь Савельев', role: 'receiver', schedule: { '1': ['09:00', '13:00'], '2': ['09:00', '13:00'], '3': ['09:00', '13:00'], '4': ['09:00', '13:00'], '5': ['09:00', '13:00'] } },
+  { id: 'EMP-06', name: 'Мария Лебедева', role: 'receiver', schedule: { '1': ['09:00', '13:00'], '2': ['09:00', '13:00'], '3': ['09:00', '13:00'], '4': ['09:00', '13:00'], '5': ['09:00', '13:00'] } },
+  { id: 'EMP-07', name: 'Павел Орлов', role: 'receiver', schedule: { '1': ['13:00', '17:00'], '2': ['13:00', '17:00'], '3': ['13:00', '17:00'], '4': ['13:00', '17:00'], '5': ['13:00', '17:00'] } },
+  { id: 'EMP-08', name: 'Наталья Громова', role: 'keeper', schedule: { '1': ['13:00', '17:00'], '2': ['13:00', '17:00'], '3': ['13:00', '17:00'], '4': ['13:00', '17:00'], '5': ['13:00', '17:00'] } },
+  { id: 'EMP-09', name: 'Тимур Ахметов', role: 'receiver', schedule: { '6': ['10:00', '16:00'], '7': ['10:00', '16:00'] } },
+  { id: 'EMP-10', name: 'Елена Фролова', role: 'receiver', schedule: { '6': ['10:00', '16:00'], '7': ['10:00', '16:00'] } },
+];
+
+function initEmployees() {
+  employees = EMP_SEED.map((e) => ({ ...e, schedule: { ...e.schedule } }));
+}
+
+function onShiftAt(schedule: Record<string, [string, string]>, now: Date): boolean {
+  // ISO-день недели из даты (мск-сдвиг +3ч, как в planProduction)
+  const msk = new Date(now.getTime() + 3 * 3600 * 1000);
+  const wd = msk.getUTCDay() === 0 ? 7 : msk.getUTCDay();
+  const hours = schedule[String(wd)];
+  if (!hours) return false;
+  const hm = `${String(msk.getUTCHours()).padStart(2, '0')}:${String(msk.getUTCMinutes()).padStart(2, '0')}`;
+  return hours[0] <= hm && hm < hours[1];
+}
+
+function empLoad(id: string): number {
+  return shipments.filter((s) => s.status === 'expected' && (s as any).assignee === id).length;
+}
+
+export function mockEmployees() {
+  const now = nowDt();
+  return {
+    now: nowStr,
+    employees: employees.map((e) => ({
+      ...e,
+      on_shift: onShiftAt(e.schedule, now),
+      active: empLoad(e.id),
+      done: shipments.filter((s) => s.status === 'received' && (s as any).assignee === e.id).length,
+    })),
+  };
+}
+
+export function mockAssign(shipmentId: string, employeeId?: string, auto = false) {
+  const s: any = shipments.find((x) => x.shipment_id === shipmentId);
+  if (!s) mockErr(404, `Поставка ${shipmentId} не найдена`, '');
+  if (s!.status !== 'expected') mockErr(400, `Назначать можно только поставку в пути (статус ${s!.status})`, 'Принятая поставка уже не требует приёмщика');
+  const now = nowDt();
+  const onShift = employees.filter((e) => onShiftAt(e.schedule, now));
+  let pick: Employee | undefined;
+  let isAuto = false;
+  if (auto || !employeeId) {
+    if (!onShift.length) mockErr(400, 'Некого назначить: сейчас никто не на смене', 'Проверьте график в разделе Сотрудники');
+    const msk = new Date(now.getTime() + 3 * 3600 * 1000);
+    const wd = String(msk.getUTCDay() === 0 ? 7 : msk.getUTCDay());
+    const startOf = (e: Employee) => (e.schedule[wd] || ['99:99', ''])[0];
+    pick = [...onShift].sort((a, b) =>
+      empLoad(a.id) - empLoad(b.id) ||
+      startOf(a).localeCompare(startOf(b)) ||
+      a.id.localeCompare(b.id))[0];
+    isAuto = true;
+  } else {
+    pick = employees.find((e) => e.id === employeeId);
+    if (!pick) mockErr(404, `Сотрудник ${employeeId} не найден`, 'Проверьте раздел Сотрудники');
+    if (!onShift.includes(pick!)) mockErr(400, `${pick!.name} сейчас не на смене — назначить нельзя`, 'Выберите того, кто на работе, или доверьте автовыбор');
+  }
+  s!.assignee = pick!.id;
+  return { shipment_id: shipmentId, assignee: pick!.id, employee: pick!.name, auto: isAuto };
+}
 let fixtureName = 'simple';
 let loaded = false;
 let loadPromise: Promise<void> | null = null;
@@ -246,6 +319,7 @@ export function ensureMockLoaded(): Promise<void> {
     } catch { /* offline */ }
     applyFixtureData(cache03 || SIMPLE_FALLBACK);
     applyProdData(cache05 || PROD_FALLBACK);
+    initEmployees();
     fixtureName = 'simple';
     loaded = true;
   })();
@@ -280,6 +354,7 @@ export function mockReset(fixture: 'simple' | 'extended') {
     applyFixtureData(cache03 || SIMPLE_FALLBACK);
   }
   applyProdData(cache05 || PROD_FALLBACK);
+  initEmployees();
   return buildSnapshot();
 }
 

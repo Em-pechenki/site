@@ -3,7 +3,7 @@
 // где живого backend нет и записи иначе терялись бы при перезагрузке.
 
 export type OpAction = 'reserve' | 'ship' | 'receive' | 'create_order' | 'create_shipment'
-  | 'unreserve' | 'cancel_ship' | 'unreceive' | 'cancel_batch';
+  | 'unreserve' | 'cancel_ship' | 'unreceive' | 'cancel_batch' | 'assign';
 
 export interface OpEntry {
   ts: string; // ISO
@@ -95,6 +95,7 @@ export const OP_ACTION_LABEL: Record<OpAction, string> = {
   cancel_ship: 'отмена отгрузки',
   unreceive: 'возврат в путь',
   cancel_batch: 'отмена партии',
+  assign: 'назначение приёмщика',
 };
 
 // Локализованные подписи действий (журнал и выгрузки).
@@ -109,6 +110,7 @@ export function opActionLabel(action: OpAction, lang: 'ru' | 'en'): string {
     cancel_ship: { ru: 'отмена отгрузки', en: 'shipment cancelled' },
     unreceive: { ru: 'возврат в путь', en: 'back to transit' },
     cancel_batch: { ru: 'отмена партии', en: 'batch cancelled' },
+    assign: { ru: 'назначение приёмщика', en: 'receiver assigned' },
   };
   return (map[action] || { ru: action, en: action })[lang];
 }
