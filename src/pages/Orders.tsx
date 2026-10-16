@@ -23,7 +23,6 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
   const [msg, setMsg] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ customer: '', sku: 'FG-AIR', quantity: 5, due_at: '2026-11-03T17:00' });
-  const [qtyMap, setQtyMap] = useState<Record<string, number>>({});
   const [query, setQuery] = useState('');
   const [staff, setStaff] = useState<any[]>([]);
   const [shipOpen, setShipOpen] = useState<string | null>(null);
@@ -38,44 +37,22 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
   const onShift = staff.filter((e: any) => e.on_shift);
   const empName = (id: string | null | undefined) => staffName(staff, id);
 
-  const freeBySku: Record<string, number> = {};
-  for (const s of snapshot?.stock || []) freeBySku[s.sku] = s.free ?? 0;
-
-  function suggested(o: any) {
-    return Math.max(0, Math.min(o.unreserved ?? 0, freeBySku[o.sku] ?? 0));
+  // Заказ — неделимый объект: все операции идут на весь остаток целиком,
+  // без ручного ввода количества.
+  function unreservedOf(o: any) {
+    return Math.max(0, (o.quantity ?? 0) - (o.shipped_qty ?? 0) - (o.reserved_qty ?? 0));
   }
 
-  function manualQty(o: any) {
-    const v = qtyMap[o.order_id];
-    if (v && v > 0) return Math.floor(v);
-    return 0;
+  function remainingOf(o: any) {
+    return Math.max(0, (o.quantity ?? 0) - (o.shipped_qty ?? 0));
   }
 
-  function reserveQtyFor(o: any) {
-    return manualQty(o) || suggested(o);
-  }
-
-  function shipQtyFor(o: any) {
-    // Отгрузка идёт только из брони — дефолт это reserved_qty,
-    // а не min(unreserved, free) как для резерва.
-    return manualQty(o) || Math.max(0, o.reserved_qty ?? 0);
-  }
-
-  function unreserveQtyFor(o: any) {
-    return manualQty(o) || Math.max(0, o.reserved_qty ?? 0);
-  }
-
-  function cancelShipQtyFor(o: any) {
-    return manualQty(o) || Math.max(0, o.shipped_qty ?? 0);
-  }
-
-  function placeholderFor(o: any) {
-    // Резерв — основной сценарий, но если резервировать уже нечего
-    // (suggested 0), а бронь есть — показываем бронь, чтобы поле
-    // не предлагало «0» при активной кнопке «Отгрузить».
-    const s = suggested(o);
-    if (s > 0) return s;
-    return Math.max(0, o.reserved_qty ?? 0);
+  function shipTitle(o: any) {
+    const remaining = remainingOf(o);
+    const reserved = Math.max(0, o.reserved_qty ?? 0);
+    if (reserved <= 0) return t('o_no_book');
+    if (reserved < remaining) return t('o_reserve_all_first', { id: o.order_id, r: reserved, n: remaining });
+    return `${t('o_ship')} ${remaining}`;
   }
 
   const humanSku = (sku: string) => (sku === 'FG-AIR' ? 'air' : sku === 'FG-PLUS' ? 'air plus' : sku);
@@ -128,7 +105,7 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
   }
 
   async function doReserve(o: any) {
-    const qty = reserveQtyFor(o);
+    const qty = unreservedOf(o);
     if (!(qty > 0)) {
       setMsg(t('o_nothing_reserve', { id: o.order_id }));
       return;
@@ -145,11 +122,17 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
   }
 
   async function doShip(o: any, performer?: { employee_id?: string; auto?: boolean }) {
-    const qty = shipQtyFor(o);
-    if (!(qty > 0)) {
+    const remaining = remainingOf(o);
+    const reserved = Math.max(0, o.reserved_qty ?? 0);
+    if (!(reserved > 0)) {
       setMsg(t('o_nothing_ship', { id: o.order_id }));
       return;
     }
+    if (reserved < remaining) {
+      setMsg(t('o_reserve_all_first', { id: o.order_id, r: reserved, n: remaining }));
+      return;
+    }
+    const qty = remaining;
     setMsg('');
     try {
       const r: any = await ship(o.order_id, qty, performer);
@@ -158,13 +141,16 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
       setMsg(t('o_shipped_ok', { qty, id: o.order_id }) + who);
       setShipOpen(null);
       onChange();
+      // Полная отгрузка закрывает заказ — список закрытых тоже обновляем сразу,
+      // иначе отгруженный появится там только после перезагрузки страницы.
+      if (showClosed) loadClosed();
     } catch (e: any) {
       setMsg(t('o_err') + `${e.message}${e.hint ? ' — ' + e.hint : ''}`);
     }
   }
 
   async function doUnreserve(o: any) {
-    const qty = unreserveQtyFor(o);
+    const qty = Math.max(0, o.reserved_qty ?? 0);
     if (!(qty > 0)) {
       setMsg(t('o_nothing_unreserve', { id: o.order_id }));
       return;
@@ -181,7 +167,7 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
   }
 
   async function doCancelShip(o: any, performer?: { employee_id?: string; auto?: boolean }) {
-    const qty = cancelShipQtyFor(o);
+    const qty = Math.max(0, o.shipped_qty ?? 0);
     if (!(qty > 0)) {
       setMsg(t('o_nothing_cancel_ship', { id: o.order_id }));
       return;
@@ -346,16 +332,7 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
                   <td className={openCols.isOff('assignee') ? 'col-off' : ''}>{empName(o.assignee) || '—'}</td>
                   <td style={{ whiteSpace: 'nowrap' }} className="col-actions">
                     <span className="actions-row">
-                    <input
-                      type="number"
-                      min={1}
-                      style={{ width: 64 }}
-                      title={t('o_qty_title', { n: o.unreserved })}
-                      value={qtyMap[o.order_id] ?? ''}
-                      placeholder={String(placeholderFor(o))}
-                      onChange={(e) => setQtyMap({ ...qtyMap, [o.order_id]: Number(e.target.value) })}
-                    />{' '}
-                    <button className="ghost small" disabled={o.unreserved <= 0} title={o.unreserved <= 0 ? t('o_all_booked') : `${t('o_reserve')} ${reserveQtyFor(o)}`} onClick={() => doReserve(o)}>{t('o_reserve')}</button>{' '}
+                    <button className="ghost small" disabled={unreservedOf(o) <= 0} title={unreservedOf(o) <= 0 ? t('o_all_booked') : `${t('o_reserve')} ${unreservedOf(o)}`} onClick={() => doReserve(o)}>{t('o_reserve')}</button>{' '}
                     {(o.shipped_qty ?? 0) > 0 ? (
                       shipOpen === `${o.order_id}|cancel` ? (
                         <>
@@ -373,7 +350,7 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
                           <button className="ghost small" onClick={() => setShipOpen(null)}>{t('s_assign_cancel')}</button>
                         </>
                       ) : (
-                        <button className="ghost small" title={t('o_cancel_ship_title', { n: cancelShipQtyFor(o) })} onClick={() => setShipOpen(`${o.order_id}|cancel`)}>{t('o_cancel_ship')}</button>
+                        <button className="ghost small" title={t('o_cancel_ship_title', { n: o.shipped_qty ?? 0 })} onClick={() => setShipOpen(`${o.order_id}|cancel`)}>{t('o_cancel_ship')}</button>
                       )
                     ) : (
                       shipOpen === `${o.order_id}|ship` ? (
@@ -392,11 +369,11 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
                           <button className="ghost small" onClick={() => setShipOpen(null)}>{t('s_assign_cancel')}</button>
                         </>
                       ) : (
-                        <button className="ghost small" disabled={o.reserved_qty <= 0} title={o.reserved_qty <= 0 ? t('o_no_book') : `${t('o_ship')} ${shipQtyFor(o)}`} onClick={() => setShipOpen(`${o.order_id}|ship`)}>{t('o_ship')}</button>
+                        <button className="ghost small" disabled={(o.reserved_qty ?? 0) <= 0} title={shipTitle(o)} onClick={() => setShipOpen(`${o.order_id}|ship`)}>{t('o_ship')}</button>
                       )
                     )}{' '}
                     {o.reserved_qty > 0 && (
-                      <><button className="ghost small" title={t('o_unreserve_title', { n: unreserveQtyFor(o) })} onClick={() => doUnreserve(o)}>{t('o_unreserve')}</button>{' '}</>
+                      <><button className="ghost small" title={t('o_unreserve_title', { n: o.reserved_qty ?? 0 })} onClick={() => doUnreserve(o)}>{t('o_unreserve')}</button>{' '}</>
                     )}
                     </span>
                   </td>

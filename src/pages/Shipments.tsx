@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { createShipment, receive, unreceive, assignShipment, employees as fetchStaff } from '../api';
+import { createShipment, receive, unreceive, assignShipment, unassignShipment, employees as fetchStaff } from '../api';
 import { fmtDate } from '../format';
 import { logOp } from '../opslog';
 import { useT, useLang } from '../i18n';
@@ -86,6 +86,21 @@ export default function Shipments({ snapshot, shipmentsAll, onChange }: { snapsh
   function pickOf(id: string) {
     const v = assignPick[id];
     return !v || v === 'auto' ? { auto: true } : { employee_id: v };
+  }
+
+  async function doUnassign(id: string) {
+    setMsg('');
+    try {
+      const s = all.find((x: any) => x.shipment_id === id);
+      const prev = empName(s?.assignee);
+      await unassignShipment(id);
+      logOp({ action: 'unassign', shipment_id: id, sku: s?.sku, qty: s?.quantity, note: prev });
+      setMsg(t('s_unassigned_ok', { id }));
+      onChange();
+      loadStaff();
+    } catch (e: any) {
+      setMsg(t('o_err') + `${e.message}${e.hint ? ' — ' + e.hint : ''}`);
+    }
   }
 
   async function doReceive(id: string, performer?: { employee_id?: string; auto?: boolean }) {
@@ -285,6 +300,9 @@ export default function Shipments({ snapshot, shipmentsAll, onChange }: { snapsh
                             ) : (
                               <>
                                 <button className="ghost small" onClick={() => setAssignOpen(s.shipment_id)}>{name ? t('s_reassign') : t('s_assign')}</button>
+                                {name && (
+                                  <button className="ghost small" title={t('s_unassign_title')} onClick={() => doUnassign(s.shipment_id)}>{t('s_unassign')}</button>
+                                )}
                                 <button className="ghost small" onClick={() => setRecvOpen(`${s.shipment_id}|receive`)}>{t('s_accept')}</button>
                               </>
                             )

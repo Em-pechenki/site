@@ -330,6 +330,15 @@ export async function assignShipment(shipmentId: string, opts?: { employee_id?: 
   }
 }
 
+export async function unassignShipment(shipmentId: string) {
+  try { return await req(`/api/shipments/${encodeURIComponent(shipmentId)}/unassign`, { method: 'POST' }); }
+  catch (e: any) {
+    if (e?.status >= 400 && e?.status < 500 && !isNetwork(e) && !mockMode) throw e;
+    await mockReady; setMock(true);
+    try { return mock.mockUnassign(shipmentId); } catch (m: any) { mockError(m); }
+  }
+}
+
 export async function prodStatus() {
   try { return await req('/api/production/status'); }
   catch { await mockReady; setMock(true); return mock.mockProdStatus(); }

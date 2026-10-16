@@ -151,6 +151,15 @@ export function mockAssign(shipmentId: string, employeeId?: string, auto = false
   s!.assignee = pick!.id;
   return { shipment_id: shipmentId, assignee: pick!.id, employee: pick!.name, auto: isAuto };
 }
+
+export function mockUnassign(shipmentId: string) {
+  const s: any = shipments.find((x) => x.shipment_id === shipmentId);
+  if (!s) mockErr(404, `Поставка ${shipmentId} не найдена`, '');
+  if (s!.status !== 'expected') mockErr(400, `Назначение можно снять только у поставки в пути (статус ${s!.status})`, 'Принятая поставка уже закреплена за приёмщиком');
+  if (!s!.assignee) mockErr(400, `Поставка ${shipmentId} и так без ответственного`, '');
+  s!.assignee = null;
+  return { shipment_id: shipmentId, assignee: null };
+}
 let fixtureName = 'simple';
 let loaded = false;
 let loadPromise: Promise<void> | null = null;

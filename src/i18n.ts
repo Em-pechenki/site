@@ -220,6 +220,7 @@ const D: Dict = {
   o_nothing_reserve: { ru: 'Нечего бронировать для {id}: нет свободного запаса или всё уже в брони.', en: 'Nothing to reserve for {id}: no free stock or everything is already reserved.' },
   o_reserved_ok: { ru: 'Забронировано {qty} для {id}.', en: 'Reserved {qty} for {id}.' },
   o_nothing_ship: { ru: 'Нечего отгружать для {id}: нет брони.', en: 'Nothing to ship for {id}: no reservation.' },
+  o_reserve_all_first: { ru: 'Сначала зарезервируйте весь заказ {id}: в брони {r} из {n}.', en: 'Reserve the whole order {id} first: {r} of {n} reserved.' },
   o_shipped_ok: { ru: 'Отгружено {qty} для {id}.', en: 'Shipped {qty} for {id}.' },
   o_unreserve: { ru: 'Снять бронь', en: 'Unreserve' },
   o_unreserve_title: { ru: 'Снять бронь {n} (вернуть в свободный запас)', en: 'Unreserve {n} (return to free stock)' },
@@ -291,6 +292,9 @@ const D: Dict = {
   s_assign_ok: { ru: 'На приёмку {id} назначен: {name}.', en: '{name} assigned to receive {id}.' },
   s_assign_auto_ok: { ru: 'Автовыбор: на приёмку {id} назначен {name} (меньше всех занят).', en: 'Auto-pick: {name} (least busy) assigned to receive {id}.' },
   s_assign_cancel: { ru: 'Отмена', en: 'Cancel' },
+  s_unassign: { ru: 'Снять', en: 'Unassign' },
+  s_unassign_title: { ru: 'Снять назначение: поставка снова без ответственного', en: 'Remove assignment: shipment becomes unassigned again' },
+  s_unassigned_ok: { ru: 'Назначение {id} снято — поставка снова без ответственного.', en: 'Assignment for {id} removed — shipment is unassigned again.' },
   s_filter_todo: { ru: 'в пути', en: 'inbound' },
   s_filter_done: { ru: 'принятые', en: 'received' },
 
