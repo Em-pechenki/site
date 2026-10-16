@@ -153,6 +153,8 @@ input, select, textarea { font-family: var(--font-sans); }
   gap: 20px;
 }
 .fc-brand { display: flex; align-items: center; gap: 11px; text-decoration: none; cursor: pointer; flex-shrink: 0; }
+/* Обёртка двух логотипов: на десктопе прозрачна (всё как было), на мобиле — столбик */
+.fc-brands { display: contents; }
 .fc-logo {
   width: 32px; height: 32px;
   border-radius: 9px;
@@ -1550,7 +1552,10 @@ ul li { margin-bottom: 5px; color: var(--muted-fg); font-size: 14px; font-weight
   .tbl td { padding: 10px 8px; }
   .tbl { font-size: 12.5px; }
   /* Визитка: компактная шапка и hero — все на одной вертикали 16px */
-  .fc-header-inner { padding: 0 16px; gap: 10px; flex-wrap: wrap; height: auto; row-gap: 8px; padding-top: 10px; padding-bottom: 10px; }
+  .fc-header-inner { padding: 10px 16px; display: grid; grid-template-columns: 1fr auto; gap: 8px 10px; align-items: start; height: auto; }
+  /* Логотипы — в две строчки слева, язык/тема — справа вверху */
+  .fc-brands { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+  .fc-header-right { margin-left: 0; align-self: start; }
   .fc-topbar-inner, .fc-statusbar-inner, .fc-footer-inner { padding-left: 16px; padding-right: 16px; }
   .fc-header { position: static; }
   .fc-header .btn-primary { padding: 8px 14px !important; font-size: 12.5px; }
@@ -1721,6 +1726,8 @@ img, svg, table { max-width: 100%; }
 /* В модалке диалог важнее витрины: когда переписка начата, описание прячем,
    а подсказки схлопываем в одну горизонтальную ленту — место отдаём чату */
 .modal-dialog .ai-chat.has-history > .muted { display: none; }
+.modal-dialog .ai-chat.has-history .fc-section-label,
+.modal-dialog .ai-chat.has-history h3 { display: none; }
 .modal-dialog .ai-chat.has-history .chips {
   display: flex; flex-wrap: nowrap; overflow-x: auto;
   gap: 8px; margin: 10px 0 2px; padding-bottom: 6px;
@@ -1742,7 +1749,9 @@ img, svg, table { max-width: 100%; }
     box-shadow: none;
   }
   /* Модалка консультанта: максимум высоты — переписке, всё остальное ужато */
+  .modal-dialog .modal-head { margin-bottom: 10px; padding-bottom: 8px; }
   .modal-dialog .ai-chat h3 { font-size: 16px; margin-bottom: 6px; }
+  .modal-dialog .ai-history { min-height: 260px; min-height: 38dvh; }
   .modal-dialog .ai-chat > .muted { font-size: 12.5px; line-height: 1.6; }
   .modal-dialog .chips { margin: 14px 0 4px; gap: 10px; }
   .modal-dialog .chip { font-size: 12px !important; padding: 10px 16px !important; }

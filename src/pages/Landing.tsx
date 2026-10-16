@@ -35,13 +35,15 @@ export default function Landing({
 
       <header className="fc-header">
         <div className="fc-header-inner">
-          <div className="fc-brand">
-            <FirecodeLogo />
-          </div>
-          <span className="fc-x">×</span>
-          <div className="fc-brand">
-            <img className="fc-logo-img" src="./yabloki-logo.png" alt="ЯблокИИ" />
-            <div className="fc-brand-name"><b>Яблок<span className="ii big">ИИ</span></b></div>
+          <div className="fc-brands">
+            <div className="fc-brand">
+              <FirecodeLogo />
+            </div>
+            <span className="fc-x">×</span>
+            <div className="fc-brand">
+              <img className="fc-logo-img" src="./yabloki-logo.png" alt="ЯблокИИ" />
+              <div className="fc-brand-name"><b>Яблок<span className="ii big">ИИ</span></b></div>
+            </div>
           </div>
           <div className="fc-header-right">
             <a className="fc-phone" href="tel:+74991305177">+7 (499) 130-51-77</a>

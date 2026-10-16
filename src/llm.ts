@@ -47,33 +47,24 @@ const CONSULT_PROMPT_EN =
 
 export const LLM_ENABLED = Boolean(API_KEY);
 
-/** Спросить модель. Возвращает текст ответа или null, если модель недоступна. */
-export async function askLlm(
-  question: string,
-  data: unknown,
-  persona: 'analyst' | 'consultant' = 'analyst',
-  history: { role: string; content: string }[] = [],
-  timeoutMs = 60000,
-  lang: 'ru' | 'en' = 'ru',
-): Promise<string | null> {
-  if (!API_KEY) return null;
+export type ChatRole = 'system' | 'user' | 'assistant';
+export interface ChatMsg { role: ChatRole; content: string }
 
-  const sys = lang === 'en'
+export function systemPrompt(
+  persona: 'analyst' | 'consultant' = 'analyst',
+  lang: 'ru' | 'en' = 'ru',
+): string {
+  return lang === 'en'
     ? (persona === 'consultant' ? CONSULT_PROMPT_EN : SYSTEM_PROMPT_EN)
     : (persona === 'consultant' ? CONSULT_PROMPT : SYSTEM_PROMPT);
-  const messages: { role: string; content: string }[] = [
-    { role: 'system', content: sys },
-  ];
-  for (const h of (history || []).slice(-6)) {
-    if (h && (h.role === 'user' || h.role === 'assistant') && h.content) {
-      messages.push({ role: h.role, content: String(h.content).slice(0, 300) });
-    }
-  }
-  messages.push({
-    role: 'user',
-    content: 'Данные:\n' + JSON.stringify(data) + '\n\nВопрос: ' + question,
-  });
+}
 
+/** Одна реплика с моделью своими сообщениями — нужно для цикла инструментов. */
+export async function chatComplete(
+  messages: ChatMsg[],
+  timeoutMs = 60000,
+): Promise<string | null> {
+  if (!API_KEY) return null;
   for (let attempt = 0; attempt < 2; attempt++) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -105,4 +96,26 @@ export async function askLlm(
     if (attempt === 0) await new Promise((res) => setTimeout(res, 1000));
   }
   return null;
+}
+
+/** Спросить модель. Возвращает текст ответа или null, если модель недоступна. */
+export async function askLlm(
+  question: string,
+  data: unknown,
+  persona: 'analyst' | 'consultant' = 'analyst',
+  history: { role: string; content: string }[] = [],
+  timeoutMs = 60000,
+  lang: 'ru' | 'en' = 'ru',
+): Promise<string | null> {
+  const messages: ChatMsg[] = [{ role: 'system', content: systemPrompt(persona, lang) }];
+  for (const h of (history || []).slice(-6)) {
+    if (h && (h.role === 'user' || h.role === 'assistant') && h.content) {
+      messages.push({ role: h.role, content: String(h.content).slice(0, 300) });
+    }
+  }
+  messages.push({
+    role: 'user',
+    content: 'Данные:\n' + JSON.stringify(data) + '\n\nВопрос: ' + question,
+  });
+  return chatComplete(messages, timeoutMs);
 }

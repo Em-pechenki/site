@@ -1,7 +1,7 @@
 // Локальный мок-двойник: повторяет логику backend/engine.py 1-в-1.
 // Используется только когда API недоступен (баннер ДЕМО-МОК).
 
-import { askLlm } from './llm';
+import { chatComplete, systemPrompt, type ChatMsg } from './llm';
 
 export interface Product { sku: string; name: string; type?: string; description?: string; aliases?: string[] }
 export interface StockRow { sku: string; on_hand: number }
@@ -736,54 +736,260 @@ export function mockProdCancel() {
   return { ok: true, cancelled };
 }
 
-// ---- ИИ-мок ----
-/** Короткие факты для модели: минимум токенов, все ID и цифры на месте. */
-function compactFacts(snap: any, facts: any) {
-  const human = (sku: string) =>
-    sku === 'FG-AIR' ? 'air' : sku === 'FG-PLUS' ? 'air plus' : sku;
-  const stock = (snap.stock || []).map(
-    (s: any) => `${s.sku}(${human(s.sku)}): всего ${s.on_hand}, свободно ${s.free}, бронь ${s.reserved}`,
-  );
-  const orders = (snap.orders_active || []).slice(0, 12).map(
-    (o: any) =>
-      `${o.order_id}: ${human(o.sku)}x${o.quantity}, готов ${o.readiness || 'неизвестно'}, ` +
-      (o.atRisk ? 'возможный риск' : 'в срок') +
-      (o.shortage ? `, не хватает ${o.shortage}` : ''),
-  );
-  const ships = (facts.shipments || []).slice(0, 6).map(
-    (s: any) => `${s.shipment_id}: ${human(s.sku)}x${s.quantity}, ${s.expected_at}, ${s.status}`,
-  );
-  let delay: any = null;
-  const sd = facts.scenario_diff;
-  if (sd && Array.isArray(sd.threatened) && sd.threatened.length) {
-    const after: Record<string, any> = {};
-    (sd.after || []).forEach((a: any) => { after[a.order_id] = a; });
-    const before: Record<string, any> = {};
-    (sd.before || []).forEach((b: any) => { before[b.order_id] = b; });
-    delay = {
-      'возможный риск': sd.threatened,
-      'перенос готовности': sd.threatened.map(
-        (id: string) => `${id}: ${(before[id] || {}).readiness || '?'} -> ${(after[id] || {}).readiness || '?'}`,
-      ),
+// --- Инструменты: данные по запросу (зеркало backend/ai.py) -----------------
+// Модель видит каталог + сводку, полные таблицы запрашивает сама JSON-ом.
+
+const TOOL_NAMES = ['get_stock', 'get_orders', 'get_order', 'get_shipments',
+  'get_employees', 'get_production', 'calc_delay'];
+
+function toolsBlock(lang: 'ru' | 'en'): string {
+  if (lang === 'en') {
+    return 'Available data — via tools ONLY (full tables are NOT in the prompt):\n'
+      + '- get_stock — stock per SKU (on hand / free / reserved). No args.\n'
+      + '- get_orders — orders (args: {"status": "active"|"all", "limit": number, default 20}).\n'
+      + '- get_order — one order by ID (args: {"order_id": "ORD-003"}).\n'
+      + '- get_shipments — inbound shipments (args: {"status": "expected"|"all"}).\n'
+      + '- get_employees — staff: name, role, on shift or not (args: {"on_shift_only": true|false}).\n'
+      + '- get_production — components, incoming parts, active batch. No args.\n'
+      + '- calc_delay — readiness recalculation if a shipment moves (args: {"shipment_id": "IN-AIR-01", "new_expected_at": "2026-11-05T10:00:00+03:00"}).\n'
+      + 'PROTOCOL: if you need data — reply with ONLY JSON {"tool": "<name>", "args": {...}}, no explanations, no markdown. '
+      + 'After each result either request the next tool with the same JSON or give the final answer to the user. '
+      + 'Final answer — plain text (not JSON), brief, only from received data. No such record — say so honestly.';
+  }
+  return 'Доступные данные — только через инструменты (полных таблиц в промпте нет):\n'
+    + '- get_stock — остатки по всем SKU (всего / свободно / бронь). Без аргументов.\n'
+    + '- get_orders — заказы (args: {"status": "active"|"all", "limit": число, по умолчанию 20}).\n'
+    + '- get_order — один заказ по номеру (args: {"order_id": "ORD-003"}).\n'
+    + '- get_shipments — поставки (args: {"status": "expected"|"all"}).\n'
+    + '- get_employees — сотрудники: имя, роль, на смене ли (args: {"on_shift_only": true|false}).\n'
+    + '- get_production — компоненты, входящие детали, активная партия. Без аргументов.\n'
+    + '- calc_delay — пересчёт готовности при переносе поставки (args: {"shipment_id": "IN-AIR-01", "new_expected_at": "2026-11-05T10:00:00+03:00"}).\n'
+    + 'ПРОТОКОЛ: если для ответа нужны данные — верни ТОЛЬКО JSON {"tool": "<имя>", "args": {...}}, без пояснений и без markdown. '
+    + 'Получив результат, либо запроси следующий инструмент таким же JSON, либо дай финальный ответ пользователю. '
+    + 'Финальный ответ — обычным текстом (не JSON), коротко, только по полученным данным. Нет такой записи — так и скажи.';
+}
+
+function humanRole(role: string, lang: 'ru' | 'en'): string {
+  const map: Record<string, { ru: string; en: string }> = {
+    lead: { ru: 'старший смены', en: 'shift lead' },
+    receiver: { ru: 'приёмщик', en: 'receiver' },
+    keeper: { ru: 'кладовщик', en: 'storekeeper' },
+  };
+  const m = map[role];
+  return m ? m[lang] : role;
+}
+
+function mockEmpList() {
+  const now = nowDt();
+  return employees.map((e) => ({
+    id: e.id, name: e.name, role: e.role, on_shift: onShiftAt(e.schedule, now),
+  }));
+}
+
+function buildToolSummary(): string {
+  const snap: any = buildSnapshot();
+  const kpi = snap.kpi || {};
+  const exp = shipments.filter((s) => s.status === 'expected').length;
+  const emps = mockEmpList();
+  const on = emps.filter((e) => e.on_shift).length;
+  return `now=${snap.now}; склад: `
+    + snap.stock.map((s: any) => `${s.sku}: всего ${s.on_hand}, свободно ${s.free}`).join('; ')
+    + `; заказов активных ${kpi.active_orders ?? '?'}, в риске ${kpi.at_risk ?? '?'}`
+    + `; поставок в пути ${exp}; сотрудников ${emps.length} (${on} на смене)`
+    + `; производство: ${activeBatch ? `активна партия ${activeBatch.finished_sku}x${activeBatch.batch_qty}` : 'партий нет'}.`;
+}
+
+function capList<T>(arr: T[], limit: unknown, def = 20): [T[], number] {
+  let n = Number(limit);
+  if (!Number.isFinite(n)) n = def;
+  n = Math.max(1, Math.min(50, Math.floor(n)));
+  return [arr.slice(0, n), arr.length];
+}
+
+function allocEnriched(o: Order): any {
+  const stockMap: Record<string, number> = {};
+  for (const s of stock) stockMap[s.sku] = s.on_hand;
+  const e = allocate(orders, stockMap, shipments, nowDt())[o.order_id];
+  return {
+    ...o,
+    remaining: o.quantity - o.shipped_qty,
+    unreserved: o.quantity - o.shipped_qty - o.reserved_qty,
+    readiness: e?.readiness ? e.readiness.toISOString() : null,
+    atRisk: e?.atRisk ?? false,
+    shortage: e?.shortage ?? 0,
+  };
+}
+
+const ORDER_KEYS = ['order_id', 'customer', 'sku', 'quantity', 'reserved_qty', 'shipped_qty',
+  'status', 'remaining', 'unreserved',
+  'readiness', 'due_at', 'atRisk', 'shortage'] as const;
+
+function pickOrderKeys(o: any): any {
+  const r: any = {};
+  for (const k of ORDER_KEYS) r[k] = o[k];
+  return r;
+}
+
+function runMockTool(name: string, args: any, lang: 'ru' | 'en'): any {
+  const a = args || {};
+  if (name === 'get_stock') {
+    const snap: any = buildSnapshot();
+    return {
+      stock: snap.stock.map((s: any) =>
+        `${s.sku}: всего ${s.on_hand}, свободно ${s.free}, бронь ${s.reserved}`),
     };
   }
-  return { время: snap.now, склад: stock, заказы: orders, поставки: ships, задержка: delay };
+  if (name === 'get_orders') {
+    const src = String(a.status || 'active') === 'all'
+      ? orders.map(allocEnriched)
+      : (buildSnapshot() as any).orders_active;
+    const [items, total] = capList(src, a.limit, 20);
+    return { total, orders: items.map(pickOrderKeys) };
+  }
+  if (name === 'get_order') {
+    const oid = String(a.order_id || '').toUpperCase();
+    const found = orders.find((o) => o.order_id.toUpperCase() === oid);
+    if (!found) return { error: `заказ ${a.order_id}: такой записи нет` };
+    return { order: pickOrderKeys(allocEnriched(found)) };
+  }
+  if (name === 'get_shipments') {
+    const src = String(a.status || 'expected') === 'all'
+      ? shipments
+      : shipments.filter((s) => s.status === 'expected');
+    const [items, total] = capList(src, a.limit, 20);
+    return {
+      total,
+      shipments: items.map((s) => ({
+        shipment_id: s.shipment_id, supplier: s.supplier, sku: s.sku,
+        quantity: s.quantity, expected_at: s.expected_at, status: s.status,
+        assignee: (s as any).assignee ?? null,
+      })),
+    };
+  }
+  if (name === 'get_employees') {
+    let list = mockEmpList();
+    if (a.on_shift_only) list = list.filter((e) => e.on_shift);
+    return {
+      total: list.length,
+      employees: list.map((e) => ({
+        id: e.id, name: e.name, role: humanRole(e.role, lang), on_shift: e.on_shift,
+      })),
+    };
+  }
+  if (name === 'get_production') {
+    const [inc, incTotal] = capList(compIncoming, 20);
+    return {
+      components: compStockFull,
+      incoming_total: incTotal,
+      incoming: inc,
+      active_batch: activeBatch,
+    };
+  }
+  if (name === 'calc_delay') {
+    return mockDelaySafe(String(a.shipment_id || ''), String(a.new_expected_at || ''));
+  }
+  return { error: `неизвестный инструмент ${name}. Доступны: ${TOOL_NAMES.join(', ')}` };
+}
+
+function parseToolCall(text: string): { tool: string; args: any } | null {
+  let t = (text || '').trim().replace(/^```(?:json)?\s*|\s*```$/gi, '').trim();
+  if (!(t.startsWith('{') && t.endsWith('}'))) return null;
+  try {
+    const obj = JSON.parse(t);
+    if (obj && typeof obj.tool === 'string' && (!obj.args || typeof obj.args === 'object')) {
+      return { tool: obj.tool, args: obj.args || {} };
+    }
+  } catch { /* не JSON — финальный ответ */ }
+  return null;
+}
+
+function shortResult(r: unknown, limit = 600): string {
+  const s = JSON.stringify(r);
+  return s.length <= limit ? s : s.slice(0, limit) + '…';
 }
 
 export async function mockAiAsk(question: string, scenario?: { shipment_id: string; new_expected_at: string }, persona: 'analyst' | 'consultant' = 'analyst', history: { role: string; content: string }[] = [], lang: 'ru' | 'en' = 'ru') {
   const snap: any = buildSnapshot();
   // Сценарий задержки не передан — соберём его из самого вопроса и текущих данных (без заготовок).
   if (!scenario) scenario = inferDelayFromQuestion(question);
-  const facts = {
+  const facts: any = {
     snapshot_summary: `now=${snap.now}; ` + snap.stock.map((s: any) => `${s.sku}: on_hand=${s.on_hand}, reserved=${s.reserved}, free=${s.free}`).join('; '),
     readiness_table: snap.orders_active.map((o: any) => ({ order_id: o.order_id, sku: o.sku, need_total: o.quantity, reserved: o.reserved_qty, readiness: o.readiness, atRisk: o.atRisk, shortage: o.shortage, due_at: o.due_at })),
     shipments: shipments,
     scenario_diff: scenario ? mockDelaySafe(scenario.shipment_id, scenario.new_expected_at) : null,
   };
-  // Backend недоступен (демо-режим) — спрашиваем нейросеть напрямую из браузера.
-  const llm = await askLlm(question, compactFacts(snap, facts), persona, history, 60000, lang);
-  if (llm && llm.length >= 15) return { answer: llm, facts_used: facts, via: 'ai' };
-  return { answer: ruleBased(question, snap, facts, lang, persona), facts_used: facts, via: 'rules' };
+  const toolCalls: any[] = [];
+  // Backend недоступен (демо-режим) — спрашиваем нейросеть напрямую из браузера,
+  // но не свалкой всего, а по протоколу инструментов: сводка + запросы.
+  const sys = systemPrompt(persona, lang) + '\n\n' + toolsBlock(lang);
+  let first = lang === 'en' ? `Summary:\n${buildToolSummary()}` : `Сводка:\n${buildToolSummary()}`;
+  if (facts.scenario_diff && facts.scenario_diff.threatened?.length) {
+    const sd = facts.scenario_diff;
+    const after: Record<string, any> = {};
+    (sd.after || []).forEach((x: any) => { after[x.order_id] = x; });
+    const before: Record<string, any> = {};
+    (sd.before || []).forEach((x: any) => { before[x.order_id] = x; });
+    const changes = sd.threatened.map((id: string) =>
+      `${id}: ${(before[id] || {}).readiness || '?'} -> ${(after[id] || {}).readiness || '?'}`);
+    first += lang === 'en'
+      ? `\n\nComputed delay scenario, threatened: ${changes.join('; ')}.`
+      : `\n\nПосчитанный сценарий задержки, пострадают: ${changes.join('; ')}.`;
+    toolCalls.push({ tool: 'calc_delay', args: scenario, auto: true, result: shortResult(sd) });
+  }
+  first += lang === 'en' ? `\n\nQuestion: ${question}` : `\n\nВопрос: ${question}`;
+  const cont = lang === 'en'
+    ? 'Result of {tool}:\n{res}\n\nContinue: request the next tool with the same JSON or give the final answer.'
+    : 'Результат {tool}:\n{res}\n\nПродолжи: запроси следующий инструмент тем же JSON или дай финальный ответ.';
+  const last = lang === 'en'
+    ? 'No more data. Give the final answer to the user in plain text.'
+    : 'Данных больше не будет. Дай финальный ответ пользователю обычным текстом.';
+  const messages: ChatMsg[] = [{ role: 'system', content: sys }];
+  for (const h of (history || []).slice(-6)) {
+    if (h && (h.role === 'user' || h.role === 'assistant') && h.content) {
+      messages.push({ role: h.role, content: String(h.content).slice(0, 300) });
+    }
+  }
+  messages.push({ role: 'user', content: first });
+  const seen = new Set<string>();
+  for (let rnd = 0; rnd <= 3; rnd++) {
+    const text = await chatComplete(messages, 60000);
+    if (!text) break;
+    const parsed = parseToolCall(text);
+    if (!parsed) {
+      if (text.length >= 15) {
+        const used = { ...facts };
+        if (toolCalls.length) used.tool_calls = toolCalls;
+        return { answer: text, facts_used: used, via: 'ai' };
+      }
+      break;
+    }
+    const key = parsed.tool + '|' + JSON.stringify(parsed.args);
+    if (seen.has(key)) break;
+    seen.add(key);
+    let result: unknown;
+    try {
+      result = runMockTool(parsed.tool, parsed.args, lang);
+    } catch (e: any) {
+      result = { error: String(e?.message || e) };
+    }
+    toolCalls.push({ tool: parsed.tool, args: parsed.args, result: shortResult(result) });
+    if (rnd >= 3) break;
+    messages.push({ role: 'assistant', content: text });
+    messages.push({
+      role: 'user',
+      content: cont.replace('{tool}', parsed.tool).replace('{res}', JSON.stringify(result)),
+    });
+  }
+  messages.push({ role: 'user', content: last });
+  const text = await chatComplete(messages, 60000);
+  if (text && text.length >= 15) {
+    const used = { ...facts };
+    if (toolCalls.length) used.tool_calls = toolCalls;
+    return { answer: text, facts_used: used, via: 'ai' };
+  }
+  const used = { ...facts };
+  if (toolCalls.length) used.tool_calls = toolCalls;
+  return { answer: ruleBased(question, snap, used, lang, persona), facts_used: used, via: 'rules' };
 }
 
 function mockDelaySafe(id: string, dt: string) {
@@ -895,6 +1101,22 @@ function ruleBased(question: string, snapshot: any, facts: any, lang: 'ru' | 'en
     const st = stockMap[found.sku] || {};
     const detail = `${oid} (${found.sku}): нужно ${found.quantity}, зарезервировано ${found.reserved_qty}, отгружено ${found.shipped_qty}. Осталось ${found.remaining}, не зарезервировано ${found.unreserved}. Свободно на складе ${st.free ?? '?'} (всего ${st.on_hand ?? '?'}, удержано ${st.reserved ?? '?'}). Готовность ${found.readiness || 'неизвестна (нехватка ' + found.shortage + ')'}, срок ${found.due_at}, риск ${found.atRisk ? 'да' : 'нет'}.`;
     return warm(detail, persona, lang);
+  }
+  if (['сотрудник', 'персонал', 'бригад', 'команд', 'приёмщик', 'приемщик', 'кладовщик', 'смен', 'дежур', 'кто на ', 'кто работает', 'employee', 'staff', 'crew', 'team', 'shift', 'on shift', 'working'].some((w) => q.includes(w))) {
+    const now = nowDt();
+    let list = employees.map((e) => ({ ...e, on_shift: onShiftAt(e.schedule, now) }));
+    if (['на смене', 'сейчас', 'дежур', 'on shift', 'working now', 'currently'].some((w) => q.includes(w))) {
+      list = list.filter((e) => e.on_shift);
+    }
+    const lm = q.match(/на букв[уы] ([а-яa-z])/);
+    if (lm) {
+      const L = lm[1].toUpperCase();
+      list = list.filter((e) => e.name.toUpperCase().startsWith(L));
+    }
+    if (!list.length) return lang === 'en' ? 'No such staff members.' : 'Таких сотрудников нет.';
+    const lines = list.map((e) => `${e.name} — ${humanRole(e.role, lang)}, ${e.on_shift ? (lang === 'en' ? 'on shift' : 'на смене') : (lang === 'en' ? 'off shift' : 'не на смене')}`);
+    const head = lang === 'en' ? `Staff (${list.length}): ` : `Сотрудники (${list.length}): `;
+    return warm(head + lines.join('; ') + '.', persona, lang);
   }
   if (['свободно', 'складе', 'можно отдать', 'можно ли', 'отдать', 'plus', 'air', 'плюс', 'аир', 'датчик', 'базов'].some((w) => q.includes(w))) {
     const plus = stockMap['FG-PLUS'], air = stockMap['FG-AIR'];
