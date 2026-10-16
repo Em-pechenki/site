@@ -12,7 +12,6 @@ type Dict = Record<string, { ru: string; en: string }>;
 const D: Dict = {
   // ---- chrome ----
   back_home: { ru: '← Главная', en: '← Home' },
-  console: { ru: 'консоль', en: 'console' },
   online: { ru: 'онлайн', en: 'online' },
   demo: { ru: 'демо', en: 'demo' },
   refresh: { ru: 'Обновить', en: 'Refresh' },
@@ -520,7 +519,6 @@ const D: Dict = {
   a_need_login: { ru: 'Сначала войдите — это займёт меньше минуты.', en: 'Please sign in first — it takes less than a minute.' },
   a_logout: { ru: 'Выйти', en: 'Sign out' },
   a_admin_badge: { ru: 'админ', en: 'admin' },
-  a_demo_badge: { ru: 'демо-админ', en: 'demo admin' },
 };
 
 export type TKey = keyof typeof D;

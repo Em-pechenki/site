@@ -205,7 +205,7 @@ export default function App() {
         </button>
         <div className="work-brand">
           <img className="fc-logo-img sm" src="./yabloki-logo.png" alt="ЯблокИИ" />
-          <span><b>Яблок<span className="ii">ИИ</span></b> · {t('console')}</span>
+          <span><b>Яблок<span className="ii">ИИ</span></b></span>
         </div>
         <div className="work-top-right">
           <span className="work-live" title={snap ? fmtDate(snap.now) : ''}>
@@ -216,7 +216,6 @@ export default function App() {
             <span className="work-user" title={user.email}>
               <span className="u-name">{user.name}</span>
               {user.role === 'admin' && <span className="badge badge-blue">{t('a_admin_badge')}</span>}
-              {user.email === 'admin@demo.local' && <span className="badge badge-warn">{t('a_demo_badge')}</span>}
               <button className="ghost small" onClick={doLogout}>
                 {t('a_logout')}
               </button>
