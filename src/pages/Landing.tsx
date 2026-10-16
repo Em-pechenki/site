@@ -1,16 +1,22 @@
 import { fmtDate } from '../format';
+import { useT } from '../i18n';
+import { Prefs } from '../components/Badges';
+import FirecodeLogo from '../components/FirecodeLogo';
 
-export type LandingTab = 'dash' | 'orders' | 'ships' | 'scenario' | 'prod' | 'ai';
+export type LandingTab = 'brief' | 'dash' | 'orders' | 'ships' | 'scenario' | 'prod' | 'ai' | 'consult';
 
 export default function Landing({
   snap,
   mock,
   onEnter,
+  onGuide,
 }: {
   snap: any;
   mock: boolean;
   onEnter: (tab: LandingTab) => void;
+  onGuide: () => void;
 }) {
+  const t = useT();
   const air = snap?.stock?.find((s: any) => s.sku === 'FG-AIR');
   const plus = snap?.stock?.find((s: any) => s.sku === 'FG-PLUS');
   const atRisk = snap?.kpi?.at_risk ?? 0;
@@ -21,29 +27,25 @@ export default function Landing({
       {/* Тонкая служебная полоса — только один раз, только на визитке */}
       <div className="fc-topbar">
         <div className="fc-topbar-inner">
-          <span><span className="t-ok">●</span> Минцифры · аккредитовано с 2014</span>
+          <span><span className="t-ok">●</span> {t('l_topbar')}</span>
           <span className="t-sep">/</span>
           <span>ISO 9001</span>
-          <span className="fc-topbar-right">
-            <span>since 2008</span>
-            <span>учебное время 02.11 09:00 МСК</span>
-          </span>
         </div>
       </div>
 
       <header className="fc-header">
         <div className="fc-header-inner">
           <div className="fc-brand">
-            <div className="fc-logo">F</div>
-            <div className="fc-brand-name"><b>FIRECODE</b><span>since 2008</span></div>
+            <FirecodeLogo />
           </div>
           <span className="fc-x">×</span>
-          <div className="fc-product"><b>Sensorika Twin</b> · двойник склада</div>
+          <div className="fc-brand">
+            <img className="fc-logo-img" src="./yabloki-logo.png" alt="ЯблокИИ" />
+            <div className="fc-brand-name"><b>Яблок<span className="ii big">ИИ</span></b></div>
+          </div>
           <div className="fc-header-right">
             <a className="fc-phone" href="tel:+74991305177">+7 (499) 130-51-77</a>
-            <button className="btn-primary" style={{ padding: '9px 20px' }} onClick={() => onEnter('dash')}>
-              Открыть приложение
-            </button>
+            <Prefs compact />
           </div>
         </div>
       </header>
@@ -54,21 +56,13 @@ export default function Landing({
         <div className="fc-hero-orb o2" />
         <div className="fc-hero-inner">
           <div>
-            <div className="fc-eyebrow"><i />Firecode × Сенсорика · цифровой двойник</div>
-            <h1>Складской <em>интеллект</em> <span className="grad">Сенсорики</span></h1>
+            <div className="fc-eyebrow"><i />{t('l_eyebrow')}</div>
+            <h1>{t('l_hero_h1a')} <em>{t('l_hero_h1b')}</em> <span className="grad">ЯблокИИ</span></h1>
             <p className="fc-hero-lead">
-              Учебная модель предприятия: <b>Air</b> — температура и влажность,
-              <b> Air Plus</b> — дополнительно CO₂. Остатки, резервы, поставки,
-              риски опозданий и объяснение ИИ — по фактам API.
+              {t('l_hero_lead')}
             </p>
             <div className="fc-hero-cta">
-              <button className="btn-indigo" onClick={() => onEnter('dash')}>Открыть приложение ›</button>
-              <button className="btn-ghost" onClick={() => onEnter('scenario')}>Демо: задержка IN-AIR-01</button>
-            </div>
-            <div className="fc-hero-pills">
-              <span className="fc-hero-pill" style={{ cursor: 'default' }}>FG-AIR · FG-PLUS</span>
-              <span className="fc-hero-pill" style={{ cursor: 'default' }}>free = on_hand − резерв</span>
-              <span className="fc-hero-pill" style={{ cursor: 'default' }}>what-if на копии</span>
+              <button className="btn-indigo" onClick={() => onEnter('brief')}>{t('l_open')}</button>
             </div>
           </div>
 
@@ -76,35 +70,35 @@ export default function Landing({
           <div className="fc-hero-card">
             <div className="fc-hero-card-top">
               <span className="d r" /><span className="d y" /><span className="d g" />
-              <span className="t">sensorika-twin · live</span>
-              <span className="live"><span className={mock ? 'fc-dot mock' : 'fc-dot'} />{mock ? 'мок-данные' : 'live-api :8000'}</span>
+              <span className="t">firecode × yabloki</span>
+              <span className="live"><span className={mock ? 'fc-dot mock' : 'fc-dot'} />{mock ? t('l_demo') : t('l_server')}</span>
             </div>
             <div className="fc-hero-card-body">
               <div className="fc-hero-kpis">
                 <div className="fc-hero-kpi">
-                  <div className="k">Air · FG-AIR</div>
-                  <div className="v">{air?.on_hand ?? '—'}<small> шт</small></div>
-                  <div className="s">свободно {air?.free ?? '—'} · резерв {air?.reserved ?? '—'}</div>
+                  <div className="k">air · <span style={{ whiteSpace: 'nowrap' }}>FG-AIR</span></div>
+                  <div className="v">{air?.on_hand ?? '—'}<small> {t('l_pcs')}</small></div>
+                  <div className="s">{t('l_free')} {air?.free ?? '—'} · {t('l_book')} {air?.reserved ?? '—'}</div>
                 </div>
                 <div className="fc-hero-kpi">
-                  <div className="k">Plus · FG-PLUS</div>
-                  <div className="v">{plus?.on_hand ?? '—'}<small> шт</small></div>
-                  <div className="s">свободно {plus?.free ?? '—'} · резерв {plus?.reserved ?? '—'}</div>
+                  <div className="k">air plus · <span style={{ whiteSpace: 'nowrap' }}>FG-PLUS</span></div>
+                  <div className="v">{plus?.on_hand ?? '—'}<small> {t('l_pcs')}</small></div>
+                  <div className="s">{t('l_free')} {plus?.free ?? '—'} · {t('l_book')} {plus?.reserved ?? '—'}</div>
                 </div>
                 <div className="fc-hero-kpi">
-                  <div className="k">Активные заказы</div>
+                  <div className="k">{t('l_kpi_active')}</div>
                   <div className="v">{active}</div>
-                  <div className="s">в пути {snap?.kpi?.expected_shipments ?? '—'} поставок</div>
+                  <div className="s">{t('l_in_transit_n', { n: snap?.kpi?.expected_shipments ?? '—' })}</div>
                 </div>
                 <div className={atRisk > 0 ? 'fc-hero-kpi alert' : 'fc-hero-kpi'}>
-                  <div className="k">В риске</div>
+                  <div className="k">{t('l_kpi_risks')}</div>
                   <div className="v">{atRisk}</div>
-                  <div className="s">{atRisk > 0 ? 'смотрите сценарий' : 'все в срок'}</div>
+                  <div className="s">{atRisk > 0 ? t('l_see_delay') : t('l_all_ok')}</div>
                 </div>
               </div>
               <div className="fc-hero-card-foot" style={{ border: 'none', padding: '4px 2px 0' }}>
                 <span className="ok">●</span>
-                <span>{snap ? fmtDate(snap.now) + ' МСК · данные API' : 'загрузка…'}</span>
+                <span>{snap ? t('l_hero_card_live', { date: fmtDate(snap.now) }) : `${t('loading')}`}</span>
               </div>
             </div>
           </div>
@@ -116,71 +110,39 @@ export default function Landing({
         <section className="fc-section" style={{ paddingTop: 44 }}>
           <div className="fc-section-head">
             <div className="fc-section-head-main">
-              <div className="fc-section-label">Возможности</div>
-              <h2>Что умеет <em>двойник</em></h2>
-              <p>Три контура для ежедневной работы. Вся работа — внутри приложения, здесь только обзор.</p>
+              <div className="fc-section-label">{t('l_cap_label')}</div>
+              <h2>{t('l_cap_h')} <em>{t('l_cap_h_em')}</em></h2>
+              <p>{t('l_cap_lead')}</p>
             </div>
           </div>
           <div className="fc-plans">
-            <div className="fc-plan">
-              <div className="fc-plan-top">Контур · Склад и заказы</div>
-              <h3>Остатки <em>и готовность</em></h3>
-              <div className="price">Air 18 / Plus 8 <small>· свободно 12 / 3</small></div>
+            <div className="fc-plan as-tab" role="button" tabIndex={0} onClick={() => onEnter('dash')} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onEnter('dash'); }}>
+              <h3>{t('l_plan1_h')} <em>{t('l_plan1_h_em')}</em></h3>
+              <div className="price">{t('l_plan1_p')} <small>{t('l_plan1_p_sub')}</small></div>
               <ul>
-                <li>Физический и свободный остаток</li>
-                <li>Резерв и отгрузка без дублей</li>
-                <li>Нехватка и риск опоздания</li>
+                <li>{t('l_plan1_li1')}</li>
+                <li>{t('l_plan1_li2')}</li>
+                <li>{t('l_plan1_li3')}</li>
               </ul>
-              <button className="btn-ghost" onClick={() => onEnter('dash')}>Открыть склад</button>
             </div>
-            <div className="fc-plan hot">
-              <div className="fc-plan-top">Решение · хит демо</div>
-              <h3>Проверка <em>задержки</em></h3>
-              <div className="price">IN-AIR-01 → 05.11 <small>· на копии данных</small></div>
+            <div className="fc-plan hot as-tab" role="button" tabIndex={0} onClick={() => onEnter('scenario')} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onEnter('scenario'); }}>
+              <h3>{t('l_plan2_h')} <em>{t('l_plan2_h_em')}</em></h3>
+              <div className="price">{t('l_plan2_p')} <small>{t('l_plan2_p_sub')}</small></div>
               <ul>
-                <li>Было / стало по готовности</li>
-                <li>Угрозы ORD-003 · ORD-005</li>
-                <li>Склад при этом не меняется</li>
+                <li>{t('l_plan2_li1')}</li>
+                <li>{t('l_plan2_li2')}</li>
+                <li>{t('l_plan2_li3')}</li>
               </ul>
-              <button className="btn-indigo" onClick={() => onEnter('scenario')}>Проверить задержку ›</button>
             </div>
-            <div className="fc-plan">
-              <div className="fc-plan-top">Решение · ИИ и цех</div>
-              <h3>Аналитик <em>и производство</em></h3>
-              <div className="price">NEUROCORP + BOM <small>· по фактам API</small></div>
+            <div className="fc-plan as-tab" role="button" tabIndex={0} onClick={() => onEnter('consult')} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onEnter('consult'); }}>
+              <h3>{t('l_plan3_h')} <em>{t('l_plan3_h_em')}</em></h3>
+              <div className="price">{t('l_plan3_p')} <small>{t('l_plan3_p_sub')}</small></div>
               <ul>
-                <li>ИИ отвечает с facts_used</li>
-                <li>Партия 8 Plus и дефицит CO₂</li>
-                <li>Gantt 02–06.11</li>
+                <li>{t('l_plan3_li1')}</li>
+                <li>{t('l_plan3_li2')}</li>
+                <li>{t('l_plan3_li3')}</li>
               </ul>
-              <button className="btn-ghost" onClick={() => onEnter('ai')}>Спросить ИИ</button>
             </div>
-          </div>
-        </section>
-
-        {/* Демо за 3 минуты — короткий сценарий для жюри */}
-        <section className="fc-section">
-          <div className="fc-section-head">
-            <div className="fc-section-head-main">
-              <div className="fc-section-label">Демо · 3 минуты</div>
-              <h2>Путь <em>от остатка до решения</em></h2>
-            </div>
-            <div className="fc-section-side">
-              <button className="btn-indigo" onClick={() => onEnter('dash')}>Начать демо ›</button>
-            </div>
-          </div>
-          <div className="fc-path fc-path-3">
-            {[
-              { n: '01', t: 'Склад', d: 'Air 18 (свободно 12), Plus 8 (свободно 3)', tab: 'dash' as LandingTab },
-              { n: '02', t: 'Задержка', d: 'IN-AIR-01 → 05.11: ORD-003 и ORD-005 в риске', tab: 'scenario' as LandingTab },
-              { n: '03', t: 'ИИ-объяснение', d: 'Причины по facts: ID заказов и цифры', tab: 'ai' as LandingTab },
-            ].map((p) => (
-              <button key={p.n} className="fc-path-step" onClick={() => onEnter(p.tab)}>
-                <span className="fc-path-num">{p.n}</span>
-                <b>{p.t}</b>
-                <span className="d">{p.d}</span>
-              </button>
-            ))}
           </div>
         </section>
 
@@ -188,14 +150,14 @@ export default function Landing({
         <section className="fc-section" style={{ paddingBottom: 8 }}>
           <div className="fc-trust-big">
             <div className="fc-trust-hero">
-              <div className="t">Аккредитовано</div>
-              <b>Минцифры России</b>
-              <span>В реестре аккредитованных ИТ-компаний — с 17.07.2014.</span>
+              <div className="t">{t('l_trust1_t')}</div>
+              <b>{t('l_trust1_b')}</b>
+              <span>{t('l_trust1_s')}</span>
             </div>
             <div className="fc-trust-hero">
-              <div className="t">Сертифицировано</div>
-              <b>ISO 9001</b>
-              <span>Менеджмент качества, NDA, постоплата, замена по SLA.</span>
+              <div className="t">{t('l_trust2_t')}</div>
+              <b>{t('l_trust2_b')}</b>
+              <span>{t('l_trust2_s')}</span>
             </div>
           </div>
         </section>
@@ -206,10 +168,9 @@ export default function Landing({
           <div className="fc-footer-top">
             <div>
               <div className="fc-brand">
-                <div className="fc-logo">F</div>
-                <div className="fc-brand-name"><b>FIRECODE</b><span>since 2008</span></div>
+                <FirecodeLogo />
               </div>
-              <p>Sensorika Twin — учебный двойник склада: Air и Air Plus, заказы, поставки, what-if и производство.</p>
+              <p>{t('l_foot_p')}</p>
             </div>
             <div className="fc-footer-contacts">
               <a href="tel:+74991305177">+7 (499) 130-51-77</a>
@@ -218,8 +179,12 @@ export default function Landing({
             </div>
           </div>
           <div className="fc-footer-bottom">
-            <span>© 2008–2026 Firecode × Сенсорика</span>
-            <span><button className="link" onClick={() => onEnter('dash')}>Открыть приложение →</button></span>
+            <span>© 2008–2026 Firecode × ЯблокИИ</span>
+            <span>
+              <button className="link" onClick={onGuide}>{t('l_guide')}</button>
+              {' · '}
+              <button className="link" onClick={() => onEnter('brief')}>{t('l_open_link')}</button>
+            </span>
           </div>
         </div>
       </footer>

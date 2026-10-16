@@ -1,6 +1,8 @@
 // Локальный мок-двойник: повторяет логику backend/engine.py 1-в-1.
 // Используется только когда API недоступен (баннер ДЕМО-МОК).
 
+import { askLlm } from './llm';
+
 export interface Product { sku: string; name: string; type?: string; description?: string; aliases?: string[] }
 export interface StockRow { sku: string; on_hand: number }
 export interface Order {
@@ -185,10 +187,10 @@ function applyProdData(data: any) {
 }
 
 const SIMPLE_FALLBACK = {
-  company: 'Сенсорика', scenario_now: '2026-11-02T09:00:00+03:00',
+  company: 'ЯблокИИ', scenario_now: '2026-11-02T09:00:00+03:00',
   products: [
-    { sku: 'FG-AIR', name: 'Air', type: 'finished_good', description: '', aliases: ['Air', 'базовый датчик', 'Аир'] },
-    { sku: 'FG-PLUS', name: 'Air Plus', type: 'finished_good', description: '', aliases: ['Air Plus', 'Air+', 'датчик с CO2', 'Аир Плюс'] },
+    { sku: 'FG-AIR', name: 'air', type: 'finished_good', description: '', aliases: ['air', 'базовый датчик', 'Аир'] },
+    { sku: 'FG-PLUS', name: 'air plus', type: 'finished_good', description: '', aliases: ['air plus', 'air+', 'датчик с CO2', 'Аир Плюс'] },
   ],
   stock: [{ sku: 'FG-AIR', on_hand: 18 }, { sku: 'FG-PLUS', on_hand: 8 }],
   orders: [
@@ -328,6 +330,28 @@ export function mockCreateOrder(body: { customer: string; sku: string; quantity:
   return (snap.orders_active as any[]).find((x) => x.order_id === oid);
 }
 
+export function mockCreateShipment(body: { supplier: string; sku: string; quantity: number; expected_at: string }) {
+  const skus = new Set(products.map((p) => p.sku));
+  if (!skus.has(body.sku)) mockErr(400, `Товар ${body.sku} неизвестен`, 'Доступно: FG-AIR, FG-PLUS');
+  if (!(body.quantity > 0)) mockErr(400, 'Количество должно быть > 0', 'Укажите quantity >= 1');
+  const exp = parseDt(body.expected_at);
+  if (isNaN(exp.getTime())) mockErr(400, 'Некорректный expected_at', 'Формат ISO8601 с +03:00');
+  if (!(exp > nowDt())) mockErr(400, `Дата ${body.expected_at} должна быть позже now ${nowStr}`, 'Укажите будущую дату');
+  const prefix = body.sku === 'FG-AIR' ? 'IN-AIR-' : 'IN-PLUS-';
+  let num = 0;
+  for (const s of shipments) {
+    const m = s.shipment_id.match(new RegExp('^' + prefix + '(\\d+)$'));
+    if (m) num = Math.max(num, parseInt(m[1], 10));
+  }
+  const sid = prefix + String(num + 1).padStart(2, '0');
+  const rec: Shipment = {
+    shipment_id: sid, supplier: body.supplier || 'Новый поставщик', sku: body.sku,
+    quantity: Number(body.quantity), expected_at: body.expected_at, status: 'expected',
+  };
+  shipments.push(rec);
+  return rec;
+}
+
 export function mockReserve(orderId: string, qty: number) {
   const o = orders.find((x) => x.order_id === orderId);
   if (!o) mockErr(404, `Заказ ${orderId} не найден`, 'Проверьте ID');
@@ -371,6 +395,45 @@ export function mockReceive(shipmentId: string) {
   if (!row) stock.push({ sku: s!.sku, on_hand: s!.quantity });
   else row.on_hand += s!.quantity;
   return { shipment_id: shipmentId, status: 'received', snapshot: buildSnapshot() };
+}
+
+export function mockUnreceive(shipmentId: string) {
+  const s = shipments.find((x) => x.shipment_id === shipmentId);
+  if (!s) mockErr(404, `Поставка ${shipmentId} не найдена`, '');
+  if (s!.status !== 'received') mockErr(400, `Поставка ${shipmentId} не принята (статус ${s!.status}) — возвращать нечего`, 'Отменить можно только принятую поставку');
+  const row = stock.find((r) => r.sku === s!.sku);
+  const onHand = row ? row.on_hand : 0;
+  const reservedTotal = orders.filter((x) => x.status === 'active' && x.sku === s!.sku)
+    .reduce((sum, x) => sum + x.reserved_qty, 0);
+  if (onHand - s!.quantity < reservedTotal) mockErr(400, `Нельзя вернуть ${shipmentId} в путь: товар уже в брони или отгружен (свободно ${onHand - reservedTotal})`, 'Сначала снимите бронь с заказов этого товара');
+  s!.status = 'expected';
+  if (row) row.on_hand -= s!.quantity;
+  return { shipment_id: shipmentId, status: 'expected', snapshot: buildSnapshot() };
+}
+
+export function mockUnreserve(orderId: string, qty: number) {
+  const o = orders.find((x) => x.order_id === orderId);
+  if (!o) mockErr(404, `Заказ ${orderId} не найден`, 'Проверьте ID');
+  if (o!.status !== 'active') mockErr(400, `Заказ ${orderId} не активен (${o!.status})`, 'Снять бронь можно только у active');
+  if (!(qty > 0)) mockErr(400, 'qty должен быть > 0', '');
+  if (qty > o!.reserved_qty) mockErr(400, `Нельзя снять ${qty}: забронировано только ${o!.reserved_qty}`, 'Уменьшите qty');
+  o!.reserved_qty -= qty;
+  return { order: mockOrders('active').find((x: any) => x.order_id === orderId), snapshot: buildSnapshot() };
+}
+
+export function mockCancelShip(orderId: string, qty: number) {
+  const o = orders.find((x) => x.order_id === orderId);
+  if (!o) mockErr(404, `Заказ ${orderId} не найден`, '');
+  if (o!.status !== 'active' && o!.status !== 'shipped') mockErr(400, `Заказ ${orderId} в статусе ${o!.status} — отменять нечего`, '');
+  if (!(qty > 0)) mockErr(400, 'qty должен быть > 0', '');
+  if (qty > o!.shipped_qty) mockErr(400, `Нельзя вернуть ${qty}: отгружено только ${o!.shipped_qty}`, 'Уменьшите qty');
+  o!.shipped_qty -= qty;
+  o!.reserved_qty += qty;
+  if (o!.shipped_qty < o!.quantity) o!.status = 'active';
+  const row = stock.find((r) => r.sku === o!.sku);
+  if (!row) stock.push({ sku: o!.sku, on_hand: qty });
+  else row.on_hand += qty;
+  return { order_id: orderId, status: o!.status, snapshot: buildSnapshot() };
 }
 
 export function mockDelay(shipmentId: string, newExpectedAt: string) {
@@ -424,10 +487,18 @@ export function mockProdStatus() {
 export function planProduction(finishedSku: string, batchQty: number, startFrom?: string) {
   if (!bom[finishedSku]) mockErr(404, `Товар ${finishedSku} неизвестен`, '');
   if (!(batchQty > 0)) mockErr(400, 'batch_qty должен быть > 0', '');
-  const start = startFrom ? parseDt(startFrom) : nowDt();
+  const rawStart = startFrom ? parseDt(startFrom) : nowDt();
+  const start = isNaN(rawStart.getTime()) ? nowDt() : rawStart;
   const needMap: Record<string, number> = {};
   for (const [c, per] of Object.entries(bom[finishedSku])) needMap[c] = (per as number) * batchQty;
+  // К дате старта доступно: склад + входящие, которые приедут не позже старта.
   const have = compMap();
+  for (const c of compIncoming) {
+    if (c.status !== 'expected') continue;
+    const eat = parseDt(c.expected_at);
+    if (isNaN(eat.getTime())) continue;
+    if (eat <= start) have[c.sku] = (have[c.sku] ?? 0) + c.quantity;
+  }
   const shortage = Object.entries(needMap)
     .filter(([c, need]) => need > (have[c] ?? 0))
     .map(([c, need]) => ({ sku: c, need, have: have[c] ?? 0, deficit: need - (have[c] ?? 0) }));
@@ -476,9 +547,12 @@ export function planProduction(finishedSku: string, batchQty: number, startFrom?
   const op = operationMinutes[finishedSku] || { assembly: 20, test: 10 };
   if (shortage.length > 0) {
     const parts = shortage.map((sh) => {
-      const inc = compIncoming.filter((c) => c.sku === sh.sku && c.status === 'expected')
-        .sort((a, b) => parseDt(a.expected_at).getTime() - parseDt(b.expected_at).getTime());
-      if (inc.length) return `${sh.sku}: есть ${sh.have}, нужно ${sh.need}, не хватает ${sh.deficit}; ближайшее пополнение +${inc[0].quantity} только ${inc[0].expected_at} (${inc[0].shipment_id})`;
+      const inc = compIncoming.filter((c) => {
+        if (c.sku !== sh.sku || c.status !== 'expected') return false;
+        const eat = parseDt(c.expected_at);
+        return !isNaN(eat.getTime()) && eat > start;
+      }).sort((a, b) => parseDt(a.expected_at).getTime() - parseDt(b.expected_at).getTime());
+      if (inc.length) return `${sh.sku}: к старту есть ${sh.have}, нужно ${sh.need}, не хватает ${sh.deficit}; пополнение +${inc[0].quantity} только ${inc[0].expected_at} (${inc[0].shipment_id}) — поставьте старт на эту дату или позже`;
       return `${sh.sku}: есть ${sh.have}, нужно ${sh.need}, не хватает ${sh.deficit}; пополнений нет`;
     });
     return {
@@ -525,22 +599,92 @@ export function mockProdStart(finishedSku: string, batchQty: number) {
   return { ...plan, started: true };
 }
 
+export function mockProdCancel() {
+  if (!activeBatch) mockErr(400, 'Нет активной партии — отменять нечего', '');
+  const need: Record<string, number> = {};
+  for (const [c, per] of Object.entries(bom[activeBatch!.finished_sku])) need[c] = (per as number) * activeBatch!.batch_qty;
+  for (const [c, q] of Object.entries(need)) {
+    const row = compStockFull.find((r) => r.sku === c);
+    if (row) row.on_hand += q;
+  }
+  const cancelled = activeBatch;
+  activeBatch = null;
+  return { ok: true, cancelled };
+}
+
 // ---- ИИ-мок ----
-export function mockAiAsk(question: string, scenario?: { shipment_id: string; new_expected_at: string }) {
+/** Короткие факты для модели: минимум токенов, все ID и цифры на месте. */
+function compactFacts(snap: any, facts: any) {
+  const human = (sku: string) =>
+    sku === 'FG-AIR' ? 'air' : sku === 'FG-PLUS' ? 'air plus' : sku;
+  const stock = (snap.stock || []).map(
+    (s: any) => `${s.sku}(${human(s.sku)}): всего ${s.on_hand}, свободно ${s.free}, бронь ${s.reserved}`,
+  );
+  const orders = (snap.orders_active || []).slice(0, 12).map(
+    (o: any) =>
+      `${o.order_id}: ${human(o.sku)}x${o.quantity}, готов ${o.readiness || 'неизвестно'}, ` +
+      (o.atRisk ? 'возможный риск' : 'в срок') +
+      (o.shortage ? `, не хватает ${o.shortage}` : ''),
+  );
+  const ships = (facts.shipments || []).slice(0, 6).map(
+    (s: any) => `${s.shipment_id}: ${human(s.sku)}x${s.quantity}, ${s.expected_at}, ${s.status}`,
+  );
+  let delay: any = null;
+  const sd = facts.scenario_diff;
+  if (sd && Array.isArray(sd.threatened) && sd.threatened.length) {
+    const after: Record<string, any> = {};
+    (sd.after || []).forEach((a: any) => { after[a.order_id] = a; });
+    const before: Record<string, any> = {};
+    (sd.before || []).forEach((b: any) => { before[b.order_id] = b; });
+    delay = {
+      'возможный риск': sd.threatened,
+      'перенос готовности': sd.threatened.map(
+        (id: string) => `${id}: ${(before[id] || {}).readiness || '?'} -> ${(after[id] || {}).readiness || '?'}`,
+      ),
+    };
+  }
+  return { время: snap.now, склад: stock, заказы: orders, поставки: ships, задержка: delay };
+}
+
+export async function mockAiAsk(question: string, scenario?: { shipment_id: string; new_expected_at: string }, persona: 'analyst' | 'consultant' = 'analyst', history: { role: string; content: string }[] = [], lang: 'ru' | 'en' = 'ru') {
   const snap: any = buildSnapshot();
+  // Сценарий задержки не передан — соберём его из самого вопроса и текущих данных (без заготовок).
+  if (!scenario) scenario = inferDelayFromQuestion(question);
   const facts = {
     snapshot_summary: `now=${snap.now}; ` + snap.stock.map((s: any) => `${s.sku}: on_hand=${s.on_hand}, reserved=${s.reserved}, free=${s.free}`).join('; '),
     readiness_table: snap.orders_active.map((o: any) => ({ order_id: o.order_id, sku: o.sku, need_total: o.quantity, reserved: o.reserved_qty, readiness: o.readiness, atRisk: o.atRisk, shortage: o.shortage, due_at: o.due_at })),
     shipments: shipments,
     scenario_diff: scenario ? mockDelaySafe(scenario.shipment_id, scenario.new_expected_at) : null,
   };
-  const answer = ruleBased(question, snap, facts);
-  return { answer, facts_used: facts };
+  // Backend недоступен (демо-режим) — спрашиваем нейросеть напрямую из браузера.
+  const llm = await askLlm(question, compactFacts(snap, facts), persona, history, 60000, lang);
+  if (llm && llm.length >= 15) return { answer: llm, facts_used: facts, via: 'ai' };
+  return { answer: ruleBased(question, snap, facts), facts_used: facts, via: 'rules' };
 }
 
 function mockDelaySafe(id: string, dt: string) {
   try { return mockDelay(id, dt); }
   catch (e: any) { return { error: e.message, threatened: [], before: [], after: [] }; }
+}
+
+function inferDelayFromQuestion(question: string): { shipment_id: string; new_expected_at: string } | undefined {
+  const q = question.toLowerCase();
+  if (!/(задерж|сдви|перенос|пострад|что будет)/.test(q)) return undefined;
+  const sidTok = (question.toUpperCase().match(/(?:SB-)?IN-[A-Z0-9\-]+/) || [])[0];
+  if (!sidTok) return undefined;
+  const target = shipments.find((s) => s.shipment_id.toUpperCase() === sidTok && s.status === 'expected');
+  if (!target) return undefined;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const iso = question.match(/20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}/);
+  if (iso) return { shipment_id: target.shipment_id, new_expected_at: iso[0] + ':00+03:00' };
+  const dm = question.match(/(?:^|\D)(\d{1,2})[./](\d{1,2})(?!\d)/);
+  if (dm) {
+    const year = nowDt().getFullYear();
+    return { shipment_id: target.shipment_id, new_expected_at: `${year}-${pad(Number(dm[2]))}-${pad(Number(dm[1]))}T10:00:00+03:00` };
+  }
+  // дата не названа — сдвигаем от текущего момента демо, без зашитых чисел
+  const d = new Date(nowDt().getTime() + 3 * 24 * 60 * 60 * 1000);
+  return { shipment_id: target.shipment_id, new_expected_at: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T10:00:00+03:00` };
 }
 
 function ruleBased(question: string, snapshot: any, facts: any): string {
@@ -565,12 +709,26 @@ function ruleBased(question: string, snapshot: any, facts: any): string {
       return 'При задержке никто не пострадает. База не тронута.';
     }
   }
-  // задержка без scenario в вопросе
-  if (q.includes('задерж') && q.includes('in-air-01')) {
-    try {
-      const d: any = mockDelay('IN-AIR-01', '2026-11-05T10:00:00+03:00');
-      if (d.threatened.length) return `При задержке IN-AIR-01 до 05.11 пострадают: ${d.threatened.join(', ')}. Готовность сдвигается на 05.11 10:00, риск опоздания; остальные без изменений; база не тронута.`;
-    } catch { /* pass */ }
+  // задержка без готового scenario: достаём поставку и дату прямо из вопроса и считаем на лету
+  if (q.includes('задерж') || q.includes('сдви') || q.includes('перенос') || q.includes('пострад')) {
+    const sidTok = (question.toUpperCase().match(/(?:SB-)?IN-[A-Z0-9\-]+/) || [])[0];
+    const sid = sidTok ? [...known].find((k) => k.toUpperCase() === sidTok) : undefined;
+    if (sid) {
+      const year = nowDt().getFullYear();
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const iso = question.match(/20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}/);
+      const dm = question.match(/(?:^|\D)(\d{1,2})[./](\d{1,2})(?!\d)/);
+      const dt = iso ? iso[0] + ':00+03:00'
+        : dm ? `${year}-${pad(Number(dm[2]))}-${pad(Number(dm[1]))}T10:00:00+03:00`
+          : `${year}-12-31T10:00:00+03:00`;
+      try {
+        const d: any = mockDelay(sid, dt);
+        if (d.threatened.length) return `При задержке ${sid} до ${dt} пострадают: ${d.threatened.join(', ')}. Остальные без изменений, база не тронута.`;
+        return `При задержке ${sid} до ${dt} никто не пострадает. База не тронута.`;
+      } catch (e: any) {
+        return `Сценарий задержки ${sid} не посчитан: ${e.message}`;
+      }
+    }
   }
   const mOrd = question.toUpperCase().match(/(ORD-\d+|SB-ORD-\d+)/);
   if (mOrd) {
@@ -582,17 +740,34 @@ function ruleBased(question: string, snapshot: any, facts: any): string {
   }
   if (['свободно', 'складе', 'можно отдать', 'можно ли', 'отдать', 'plus', 'air', 'плюс', 'аир', 'датчик', 'базов'].some((w) => q.includes(w))) {
     const plus = stockMap['FG-PLUS'], air = stockMap['FG-AIR'];
-    if (q.includes('5') && (q.includes('plus') || q.includes('плюс'))) {
-      if (plus && plus.free === 3) return 'Нет: на складе 8 Plus, но свободно только 3, 5 удержаны для ORD-002. Отдать 5 новому клиенту нельзя без снятия резерва.';
+    // сколько просят отдать и по какому SKU — считаем из данных, без заготовок
+    const askedM = question.toLowerCase().match(/(?:отдать|отгруз\w*|выдел\w*|дать|продать|хватит)\D{0,12}?(\d+)/);
+    const askedNums = question.match(/\d+/g) || [];
+    const asked = askedM ? Number(askedM[1]) : (askedNums.length ? Number(askedNums[askedNums.length - 1]) : null);
+    const skuQ = (q.includes('plus') || q.includes('плюс')) ? 'FG-PLUS'
+      : ((q.includes('air') || q.includes('аир') || q.includes('базов')) ? 'FG-AIR' : null);
+    if (asked !== null && skuQ) {
+      const stQ: any = stockMap[skuQ] || {};
+      const freeQ = stQ.free ?? 0;
+      const label = skuQ === 'FG-PLUS' ? 'air plus' : 'air';
+      const holders = snapshot.orders_active
+        .filter((o: any) => o.sku === skuQ && (o.reserved_qty || 0) > 0)
+        .map((o: any) => `${o.order_id} (${o.reserved_qty})`).join(', ');
+      if (asked > freeQ) {
+        return `Нет: ${label} всего ${stQ.on_hand ?? '?'}, свободно только ${freeQ}, а просят ${asked}.` +
+          (holders ? ` Удержано: ${holders}.` : '') +
+          ` Отдать ${asked} без снятия резерва или новой поставки нельзя.`;
+      }
+      return `Да: ${label} свободно ${freeQ} из ${stQ.on_hand ?? '?'}, можно выделить ${asked}.`;
     }
     const parts: string[] = [];
-    if (plus) parts.push(`Plus: всего ${plus.on_hand}, свободно ${plus.free}, удержано ${plus.reserved}`);
-    if (air) parts.push(`Air: всего ${air.on_hand}, свободно ${air.free}, удержано ${air.reserved}`);
+    if (plus) parts.push(`air plus: всего ${plus.on_hand}, свободно ${plus.free}, удержано ${plus.reserved}`);
+    if (air) parts.push(`air: всего ${air.on_hand}, свободно ${air.free}, удержано ${air.reserved}`);
     return 'Склад: ' + parts.join('; ') + '.';
   }
   if (q.includes('in-unknown') || q.includes('unknown')) return `IN-UNKNOWN: такой записи нет. В facts есть только: ${[...known].sort().join(', ')}.`;
   const kpi = snapshot.kpi || {};
-  return `Активных заказов ${kpi.active_orders}, под риском ${kpi.at_risk}, с нехваткой ${kpi.shortage_orders}. ` +
+  return `Активных заказов ${kpi.active_orders}, с возможным риском ${kpi.at_risk}, с нехваткой ${kpi.shortage_orders}. ` +
     snapshot.stock.map((s: any) => `${s.sku}: свободно ${s.free} из ${s.on_hand}`).join('; ') + '.';
 }
 

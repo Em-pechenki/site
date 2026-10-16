@@ -1,8 +1,11 @@
-export function fmtDate(isoStr: string | null | undefined): string {
-  if (!isoStr) return 'неизвестно';
+import { getLang } from './i18n';
+
+export function fmtDate(isoStr: string | null | undefined, lang?: 'ru' | 'en'): string {
+  if (!isoStr) return lang === 'en' || (!lang && getLang() === 'en') ? 'unknown' : 'неизвестно';
+  const l = lang || getLang();
   const d = new Date(isoStr);
   if (isNaN(d.getTime())) return String(isoStr);
-  const parts = new Intl.DateTimeFormat('ru-RU', {
+  const parts = new Intl.DateTimeFormat(l === 'en' ? 'en-GB' : 'ru-RU', {
     timeZone: 'Europe/Moscow',
     day: '2-digit',
     month: '2-digit',

@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { snapshot as fetchSnapshot, shipments as fetchShipments, adminReset, isMockMode, onMockMode } from './api';
+import { snapshot as fetchSnapshot, shipments as fetchShipments, isMockMode, onMockMode, setApiOverride, clearApiOverride, getApiOverride } from './api';
+import { useT, tr, getLang } from './i18n';
+import { Prefs } from './components/Badges';
+import NavIcon from './components/NavIcon';
+import Brief from './pages/Brief';
 import Dashboard from './pages/Dashboard';
 import Orders from './pages/Orders';
 import Shipments from './pages/Shipments';
@@ -7,47 +11,71 @@ import Scenario from './pages/Scenario';
 import Production from './pages/Production';
 import AiChat from './components/AiChat';
 import Landing from './pages/Landing';
+import Gid from './pages/Gid';
 import { fmtDate } from './format';
 
-type Tab = 'dash' | 'orders' | 'ships' | 'scenario' | 'prod' | 'ai';
-type View = 'landing' | 'app';
-
-const NAV: { id: Tab; label: string; hint: string }[] = [
-  { id: 'dash', label: 'Склад', hint: 'остатки и поставки' },
-  { id: 'orders', label: 'Заказы', hint: 'резерв и отгрузка' },
-  { id: 'ships', label: 'Поставки', hint: 'приём входящих' },
-  { id: 'scenario', label: 'Задержка', hint: 'what-if на копии' },
-  { id: 'prod', label: 'Производство', hint: 'партии и BOM' },
-  { id: 'ai', label: 'ИИ-аналитик', hint: 'вопросы по фактам' },
-];
-
-/* Короткие подписи для нижней таб-панели на мобильных */
-const TABBAR: { id: Tab; label: string }[] = [
-  { id: 'dash', label: 'Склад' },
-  { id: 'orders', label: 'Заказы' },
-  { id: 'ships', label: 'Поставки' },
-  { id: 'scenario', label: 'Задержка' },
-  { id: 'prod', label: 'Цех' },
-  { id: 'ai', label: 'ИИ' },
-];
-
-const SECTION: Record<Tab, { h: string; lead: string }> = {
-  dash: { h: 'Склад', lead: 'Физический и свободный остаток. Свободно = on_hand − резерв. Air — температура и влажность, Plus — плюс CO₂.' },
-  orders: { h: 'Заказы', lead: 'Резерв — из свободного запаса, отгрузка — только из резерва. Готовность считается от свободных и входящих поставок.' },
-  ships: { h: 'Поставки', lead: 'Входящие expected-поставки. Получение приходует qty один раз, повтор отклоняется.' },
-  scenario: { h: 'Проверка задержки', lead: 'Считается на копии данных — склад не меняется. Эталон: IN-AIR-01 → 05.11 даёт ORD-003 и ORD-005 в риске.' },
-  prod: { h: 'Производство', lead: 'BOM и план партии по горизонту 02–06.11. Сборка и тест по юнитам, перенос за 17:00 → 09:00 следующего дня.' },
-  ai: { h: 'ИИ-аналитик', lead: 'Отвечает только по данным API. ID и цифры — из facts_used. Проверка IN-UNKNOWN — без галлюцинаций.' },
-};
+type Tab = 'brief' | 'dash' | 'orders' | 'ships' | 'scenario' | 'prod' | 'ai' | 'consult';
+type View = 'landing' | 'app' | 'gid';
 
 export default function App() {
-  const [view, setView] = useState<View>('landing');
-  const [tab, setTab] = useState<Tab>('dash');
+  const t = useT();
+  const [view, setView] = useState<View>(() =>
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('gid') ? 'gid' : 'landing');
+  const [tab, setTab] = useState<Tab>('brief');
   const [snap, setSnap] = useState<any>(null);
   const [ships, setShips] = useState<any[]>([]);
   const [mock, setMock] = useState(isMockMode());
   const [msg, setMsg] = useState('');
-  const [fixture, setFixture] = useState<'simple' | 'extended'>('simple');
+  const [navCollapsed, setNavCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('yabloki-nav-collapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  function toggleNav() {
+    setNavCollapsed((v) => {
+      try {
+        localStorage.setItem('yabloki-nav-collapsed', v ? '0' : '1');
+      } catch { /* noop */ }
+      return !v;
+    });
+  }
+
+  const NAV: { id: Tab; label: string; hint: string }[] = [
+    { id: 'brief', label: t('nav_brief'), hint: t('nav_brief_hint') },
+    { id: 'dash', label: t('nav_dash'), hint: t('nav_dash_hint') },
+    { id: 'orders', label: t('nav_orders'), hint: t('nav_orders_hint') },
+    { id: 'ships', label: t('nav_ships'), hint: t('nav_ships_hint') },
+    { id: 'scenario', label: t('nav_scenario'), hint: t('nav_scenario_hint') },
+    { id: 'prod', label: t('nav_prod'), hint: t('nav_prod_hint') },
+    { id: 'ai', label: t('nav_ai'), hint: t('nav_ai_hint') },
+    { id: 'consult', label: t('nav_consult'), hint: t('nav_consult_hint') },
+  ];
+
+  /* Короткие подписи для нижней таб-панели на мобильных */
+  const TABBAR: { id: Tab; label: string }[] = [
+    { id: 'brief', label: t('tab_brief') },
+    { id: 'dash', label: t('tab_dash') },
+    { id: 'orders', label: t('tab_orders') },
+    { id: 'ships', label: t('tab_ships') },
+    { id: 'scenario', label: t('tab_scenario') },
+    { id: 'prod', label: t('tab_prod') },
+    { id: 'ai', label: t('tab_ai') },
+    { id: 'consult', label: t('tab_consult') },
+  ];
+
+  const SECTION: Record<Tab, { h: string; lead: string }> = {
+    brief: { h: t('sec_brief_h'), lead: t('sec_brief_lead') },
+    dash: { h: t('sec_dash_h'), lead: t('sec_dash_lead') },
+    orders: { h: t('sec_orders_h'), lead: t('sec_orders_lead') },
+    ships: { h: t('sec_ships_h'), lead: t('sec_ships_lead') },
+    scenario: { h: t('sec_scenario_h'), lead: t('sec_scenario_lead') },
+    prod: { h: t('sec_prod_h'), lead: t('sec_prod_lead') },
+    ai: { h: t('sec_ai_h'), lead: t('sec_ai_lead') },
+    consult: { h: t('sec_consult_h'), lead: t('sec_consult_lead') },
+  };
 
   const load = useCallback(async () => {
     try {
@@ -58,7 +86,8 @@ export default function App() {
         setShips(sh);
       } catch { setShips(s?.shipments_expected || []); }
     } catch (e: any) {
-      setMsg('Не удалось загрузить snapshot: ' + e.message);
+      // язык берём в момент вызова — колбэк стабилен, рефетч-цикла нет
+      setMsg(tr(getLang(), 'snapshot_err') + e.message);
     }
   }, []);
 
@@ -67,86 +96,105 @@ export default function App() {
     return onMockMode(setMock);
   }, [load]);
 
-  async function changeFixture(f: 'simple' | 'extended') {
-    setFixture(f);
-    setMsg('');
-    try {
-      await adminReset(f);
-      await load();
-    } catch (e: any) {
-      setMsg('Reset: ' + e.message);
-    }
-  }
-
-  function enter(t: Tab) {
-    setTab(t);
+  function enter(tt: Tab) {
+    setTab(tt);
     setView('app');
     window.scrollTo({ top: 0 });
   }
 
-  function selectTab(t: Tab) {
-    setTab(t);
+  function selectTab(tt: Tab) {
+    setTab(tt);
     window.scrollTo({ top: 0 });
   }
 
-  const air = snap?.stock?.find((s: any) => s.sku === 'FG-AIR');
-  const plus = snap?.stock?.find((s: any) => s.sku === 'FG-PLUS');
   const atRisk = snap?.kpi?.at_risk || 0;
   const activeCount = snap?.kpi?.active_orders ?? 0;
   const sec = SECTION[tab];
 
   const counts: Record<Tab, number | null> = useMemo(() => ({
+    brief: atRisk > 0 ? atRisk : null,
     dash: null,
     orders: activeCount || null,
     ships: snap?.kpi?.expected_shipments ?? null,
     scenario: atRisk > 0 ? atRisk : null,
     prod: null,
     ai: null,
+    consult: null,
   }), [activeCount, snap, atRisk]);
 
+  const [consultOpen, setConsultOpen] = useState(false);
+
+  const consultFab = (
+    <>
+      <button className="consult-fab" onClick={() => setConsultOpen(true)} title={t('ask_consultant')}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" /></svg>
+      </button>
+      {consultOpen && (
+        <div className="modal-overlay" onClick={() => setConsultOpen(false)}>
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <b>{t('consultant_title')}</b>
+              <button className="ghost small" onClick={() => setConsultOpen(false)}>{t('close')}</button>
+            </div>
+            <AiChat persona="consultant" compact />
+          </div>
+        </div>
+      )}
+    </>
+  );
+
   if (view === 'landing') {
-    return <Landing snap={snap} mock={mock} onEnter={enter} />;
+    return (<><Landing snap={snap} mock={mock} onEnter={enter} onGuide={() => setView('gid')} />{consultFab}</>);
+  }
+
+  if (view === 'gid') {
+    return (<><Gid onBack={() => setView('landing')} onEnter={enter} />{consultFab}</>);
   }
 
   return (
-    <div className="work-app">
+    <div className={navCollapsed ? 'work-app nav-collapsed' : 'work-app'}>
       {/* Единственная верхняя панель приложения — все глобальные действия только здесь */}
       <header className="work-top">
-        <button className="work-back" onClick={() => setView('landing')} title="Вернуться на визитку">
-          ← Визитка
+        <button className="work-back" onClick={() => setView('landing')} title={t('back_home')}>
+          {t('back_home')}
         </button>
         <div className="work-brand">
-          <div className="fc-logo" style={{ width: 26, height: 26, fontSize: 14 }}>F</div>
-          <span><b>Sensorika Twin</b> · консоль</span>
+          <img className="fc-logo-img sm" src="./yabloki-logo.png" alt="ЯблокИИ" />
+          <span><b>Яблок<span className="ii">ИИ</span></b> · {t('console')}</span>
         </div>
         <div className="work-top-right">
           <span className="work-live" title={snap ? fmtDate(snap.now) : ''}>
             <span className={mock ? 'fc-dot mock' : 'fc-dot'} />
-            {mock ? 'мок' : 'live'} · {snap ? fmtDate(snap.now) : '—'}
+            {mock ? t('demo') : t('online')} · {snap ? fmtDate(snap.now) : '—'}
           </span>
-          <button className="work-btn" onClick={load}>Обновить</button>
-          <select
-            className="work-select"
-            value={fixture}
-            onChange={(e) => changeFixture(e.target.value as 'simple' | 'extended')}
-            title="Набор данных"
-          >
-            <option value="simple">simple</option>
-            <option value="extended">extended</option>
-          </select>
+          <button className="work-btn" onClick={load}>{t('refresh')}</button>
+          <Prefs />
         </div>
       </header>
 
       <div className="work-layout">
         {/* Единственная навигация — боковая, без дублей в контенте */}
         <aside className="work-side">
+          <div className="work-nav-collapse-row">
+            <button
+              className="work-nav-collapse"
+              onClick={toggleNav}
+              title={navCollapsed ? t('nav_expand') : t('nav_collapse')}
+              aria-label={navCollapsed ? t('nav_expand') : t('nav_collapse')}
+              aria-expanded={!navCollapsed}
+            >
+              <NavIcon id={navCollapsed ? 'expand' : 'collapse'} />
+            </button>
+          </div>
           <nav className="work-nav">
             {NAV.map((n) => (
               <button
                 key={n.id}
                 className={tab === n.id ? 'work-nav-btn active' : 'work-nav-btn'}
                 onClick={() => selectTab(n.id)}
+                title={n.label}
               >
+                <span className="work-nav-ic"><NavIcon id={n.id} /></span>
                 <span className="work-nav-main">
                   <span className="work-nav-label">{n.label}</span>
                   <span className="work-nav-hint">{n.hint}</span>
@@ -159,22 +207,30 @@ export default function App() {
               </button>
             ))}
           </nav>
-          <div className="work-side-foot">
-            <div className="work-mini">
-              Air <b>{air?.on_hand ?? '—'}</b> · своб. <b>{air?.free ?? '—'}</b>
-            </div>
-            <div className="work-mini">
-              Plus <b>{plus?.on_hand ?? '—'}</b> · своб. <b>{plus?.free ?? '—'}</b>
-            </div>
-            <div className="work-mini muted">free = on_hand − резерв · what-if на копии · повторное списание запрещено</div>
-          </div>
         </aside>
 
         {/* Контент — один раздел за раз, без маркетинговых блоков */}
         <main className="work-main">
           {mock && (
             <div className="mock-banner">
-              <span>▲</span> Мок-режим: backend :8000 недоступен, цифры из локального seed. Поднимите API для live.
+              <span>▲</span>
+              <span style={{ flex: 1 }}>
+                {t('demo_banner')}
+              </span>
+              <button
+                className="ghost small"
+                title={t('prompt_server')}
+                onClick={() => {
+                  const cur = getApiOverride() || 'http://';
+                  const v = window.prompt(t('prompt_server'), cur);
+                  if (v === null) return;
+                  if (!v.trim()) { clearApiOverride(); load(); return; }
+                  setApiOverride(v);
+                  load();
+                }}
+              >
+                {t('connect_server')}
+              </button>
             </div>
           )}
           {msg && <div className="info">{msg}</div>}
@@ -185,20 +241,25 @@ export default function App() {
           </div>
 
           <div className="work-card" key={tab}>
+            {tab === 'brief' && <Brief snapshot={snap} shipmentsAll={ships} />}
             {tab === 'dash' && <Dashboard snapshot={snap} shipmentsAll={ships} />}
             {tab === 'orders' && <Orders snapshot={snap} onChange={load} />}
             {tab === 'ships' && <Shipments snapshot={snap} shipmentsAll={ships} onChange={load} />}
             {tab === 'scenario' && <Scenario snapshot={snap} />}
-            {tab === 'prod' && <Production />}
-            {tab === 'ai' && <AiChat />}
+            {tab === 'prod' && <Production snapshot={snap} />}
+            {/* Оба чата всегда смонтированы: история не теряется при переключении */}
+            <div style={{ display: tab === 'ai' ? undefined : 'none' }}>
+              <AiChat persona="analyst" />
+            </div>
+            <div style={{ display: tab === 'consult' ? undefined : 'none' }}>
+              <AiChat persona="consultant" />
+            </div>
           </div>
-
-          <div className="work-foot">Sensorika Twin · учебное время 02.11 09:00 МСК · Swagger :8000/docs</div>
         </main>
       </div>
 
       {/* Нижняя таб-панель — только на мобильных, вместо боковой навигации */}
-      <nav className="work-tabbar" aria-label="Разделы приложения">
+      <nav className="work-tabbar" aria-label={t('sections_label')}>
         {TABBAR.map((n) => (
           <button
             key={n.id}
@@ -206,6 +267,7 @@ export default function App() {
             onClick={() => selectTab(n.id)}
             aria-current={tab === n.id ? 'page' : undefined}
           >
+            <span className="work-tab-ic"><NavIcon id={n.id} /></span>
             <span className="work-tab-label">{n.label}</span>
             {counts[n.id] != null && (
               <span className={n.id === 'scenario' && atRisk > 0 ? 'work-tab-count risk' : 'work-tab-count'}>
@@ -215,6 +277,7 @@ export default function App() {
           </button>
         ))}
       </nav>
+      {consultFab}
     </div>
   );
 }
