@@ -8,7 +8,7 @@ export interface StockRow { sku: string; on_hand: number }
 export interface Order {
   order_id: string; customer: string; sku: string; quantity: number;
   reserved_qty: number; shipped_qty: number; status: string;
-  created_at: string; due_at: string;
+  created_at: string; due_at: string; assignee?: string | null;
   remaining?: number; unreserved?: number; readiness?: string | null;
   atRisk?: boolean; shortage?: number;
 }
@@ -81,7 +81,35 @@ function onShiftAt(schedule: Record<string, [string, string]>, now: Date): boole
 }
 
 function empLoad(id: string): number {
-  return shipments.filter((s) => s.status === 'expected' && (s as any).assignee === id).length;
+  return shipments.filter((s) => s.status === 'expected' && (s as any).assignee === id).length
+    + orders.filter((o) => o.status === 'active' && (o as any).assignee === id).length;
+}
+
+function empName(id: string | null | undefined): string | null {
+  if (!id) return null;
+  return employees.find((e) => e.id === id)?.name || id;
+}
+
+/** Исполнитель физического действия (как backend/_resolve_performer). */
+function resolvePerformer(employeeId?: string, auto = false): { id: string | null; isAuto: boolean } {
+  if (!auto && !employeeId) return { id: null, isAuto: false };
+  const now = nowDt();
+  const onShift = employees.filter((e) => onShiftAt(e.schedule, now));
+  if (auto || !employeeId) {
+    if (!onShift.length) mockErr(400, 'Некого назначить: сейчас никто не на смене', 'Проверьте график в разделе Сотрудники');
+    const msk = new Date(now.getTime() + 3 * 3600 * 1000);
+    const wd = String(msk.getUTCDay() === 0 ? 7 : msk.getUTCDay());
+    const startOf = (e: Employee) => (e.schedule[wd] || ['99:99', ''])[0];
+    const pick = [...onShift].sort((a, b) =>
+      empLoad(a.id) - empLoad(b.id) ||
+      startOf(a).localeCompare(startOf(b)) ||
+      a.id.localeCompare(b.id))[0];
+    return { id: pick.id, isAuto: true };
+  }
+  const pick = employees.find((e) => e.id === employeeId);
+  if (!pick) mockErr(404, `Сотрудник ${employeeId} не найден`, 'Проверьте раздел Сотрудники');
+  if (!onShift.includes(pick!)) mockErr(400, `${pick!.name} сейчас не на смене — назначить нельзя`, 'Выберите того, кто на работе, или доверьте автовыбор');
+  return { id: pick!.id, isAuto: false };
 }
 
 export function mockEmployees() {
@@ -444,7 +472,7 @@ export function mockReserve(orderId: string, qty: number) {
   return { order: mockOrders('active').find((x: any) => x.order_id === orderId), snapshot: buildSnapshot() };
 }
 
-export function mockShip(orderId: string, qty: number) {
+export function mockShip(orderId: string, qty: number, employeeId?: string, auto = false) {
   const o = orders.find((x) => x.order_id === orderId);
   if (!o) mockErr(404, `Заказ ${orderId} не найден`, '');
   if (o!.status !== 'active') mockErr(400, `Заказ ${orderId} не активен (${o!.status}), повторная отгрузка запрещена`, 'Отгружать можно только active');
@@ -453,26 +481,30 @@ export function mockShip(orderId: string, qty: number) {
   const onHand = srow ? srow.on_hand : 0;
   if (qty > o!.reserved_qty) mockErr(400, `Нельзя отгрузить ${qty}: зарезервировано только ${o!.reserved_qty}`, 'Сначала зарезервируйте');
   if (qty > onHand) mockErr(400, `Нельзя отгрузить ${qty}: на складе только ${onHand}`, 'Дождитесь поставки');
+  const perf = resolvePerformer(employeeId, auto);
   o!.reserved_qty -= qty;
   o!.shipped_qty += qty;
+  if (perf.id) (o as any).assignee = perf.id;
   if (srow) srow.on_hand -= qty;
   if (o!.shipped_qty === o!.quantity) o!.status = 'shipped';
-  return { order_id: orderId, status: o!.status, snapshot: buildSnapshot() };
+  return { order_id: orderId, status: o!.status, performer: empName(perf.id), snapshot: buildSnapshot() };
 }
 
-export function mockReceive(shipmentId: string) {
+export function mockReceive(shipmentId: string, employeeId?: string, auto = false) {
   const s = shipments.find((x) => x.shipment_id === shipmentId);
   if (!s) mockErr(404, `Поставка ${shipmentId} не найдена`, '');
   if (s!.status === 'received') mockErr(400, `Поставка ${shipmentId} уже получена, повтор запрещён`, 'Остаток не изменён');
   if (s!.status !== 'expected') mockErr(400, `Поставка ${shipmentId} в статусе ${s!.status}`, '');
+  const perf = resolvePerformer(employeeId, auto);
   s!.status = 'received';
+  if (perf.id) (s as any).assignee = perf.id;
   const row = stock.find((r) => r.sku === s!.sku);
   if (!row) stock.push({ sku: s!.sku, on_hand: s!.quantity });
   else row.on_hand += s!.quantity;
-  return { shipment_id: shipmentId, status: 'received', snapshot: buildSnapshot() };
+  return { shipment_id: shipmentId, status: 'received', performer: empName(perf.id), snapshot: buildSnapshot() };
 }
 
-export function mockUnreceive(shipmentId: string) {
+export function mockUnreceive(shipmentId: string, employeeId?: string, auto = false) {
   const s = shipments.find((x) => x.shipment_id === shipmentId);
   if (!s) mockErr(404, `Поставка ${shipmentId} не найдена`, '');
   if (s!.status !== 'received') mockErr(400, `Поставка ${shipmentId} не принята (статус ${s!.status}) — возвращать нечего`, 'Отменить можно только принятую поставку');
@@ -481,9 +513,11 @@ export function mockUnreceive(shipmentId: string) {
   const reservedTotal = orders.filter((x) => x.status === 'active' && x.sku === s!.sku)
     .reduce((sum, x) => sum + x.reserved_qty, 0);
   if (onHand - s!.quantity < reservedTotal) mockErr(400, `Нельзя вернуть ${shipmentId} в путь: товар уже в брони или отгружен (свободно ${onHand - reservedTotal})`, 'Сначала снимите бронь с заказов этого товара');
+  const perf = resolvePerformer(employeeId, auto);
   s!.status = 'expected';
+  if (perf.id) (s as any).assignee = perf.id;
   if (row) row.on_hand -= s!.quantity;
-  return { shipment_id: shipmentId, status: 'expected', snapshot: buildSnapshot() };
+  return { shipment_id: shipmentId, status: 'expected', performer: empName(perf.id), snapshot: buildSnapshot() };
 }
 
 export function mockUnreserve(orderId: string, qty: number) {
@@ -496,19 +530,21 @@ export function mockUnreserve(orderId: string, qty: number) {
   return { order: mockOrders('active').find((x: any) => x.order_id === orderId), snapshot: buildSnapshot() };
 }
 
-export function mockCancelShip(orderId: string, qty: number) {
+export function mockCancelShip(orderId: string, qty: number, employeeId?: string, auto = false) {
   const o = orders.find((x) => x.order_id === orderId);
   if (!o) mockErr(404, `Заказ ${orderId} не найден`, '');
   if (o!.status !== 'active' && o!.status !== 'shipped') mockErr(400, `Заказ ${orderId} в статусе ${o!.status} — отменять нечего`, '');
   if (!(qty > 0)) mockErr(400, 'qty должен быть > 0', '');
   if (qty > o!.shipped_qty) mockErr(400, `Нельзя вернуть ${qty}: отгружено только ${o!.shipped_qty}`, 'Уменьшите qty');
+  const perf = resolvePerformer(employeeId, auto);
   o!.shipped_qty -= qty;
   o!.reserved_qty += qty;
+  if (perf.id) (o as any).assignee = perf.id;
   if (o!.shipped_qty < o!.quantity) o!.status = 'active';
   const row = stock.find((r) => r.sku === o!.sku);
   if (!row) stock.push({ sku: o!.sku, on_hand: qty });
   else row.on_hand += qty;
-  return { order_id: orderId, status: o!.status, snapshot: buildSnapshot() };
+  return { order_id: orderId, status: o!.status, performer: empName(perf.id), snapshot: buildSnapshot() };
 }
 
 export function mockDelay(shipmentId: string, newExpectedAt: string) {
@@ -516,6 +552,9 @@ export function mockDelay(shipmentId: string, newExpectedAt: string) {
   if (!target) mockErr(404, `Поставка ${shipmentId} не найдена`, 'Проверьте shipment_id');
   if (target!.status !== 'expected') mockErr(400, `Поставка ${shipmentId} уже ${target!.status}, задержку считать нельзя`, 'Сценарий возможен только для expected-поставки');
   const now = nowDt();
+  const newDt = parseDt(newExpectedAt);
+  if (isNaN(newDt.getTime())) mockErr(400, 'Некорректный new_expected_at', 'Формат ISO8601 с +03:00');
+  if (newDt <= now) mockErr(400, `Новая дата ${newExpectedAt} уже прошла: перенос в прошлое невозможен`, 'Дата должна быть в будущем');
   const stockMap: Record<string, number> = {};
   for (const s of stock) stockMap[s.sku] = s.on_hand;
   const beforeAlloc = allocate(orders, stockMap, shipments, now);
@@ -655,7 +694,7 @@ export function planProduction(finishedSku: string, batchQty: number, startFrom?
   };
 }
 
-export function mockProdStart(finishedSku: string, batchQty: number) {
+export function mockProdStart(finishedSku: string, batchQty: number, employeeId?: string, auto = false) {
   if (activeBatch) mockErr(409, 'Уже есть активная партия, второй запуск запрещён', 'Дождитесь завершения или reset');
   const plan: any = planProduction(finishedSku, batchQty);
   if (!plan.feasible) mockErr(400, `Невозможно запустить: ${plan.explanation}`, 'Проверьте shortage');
@@ -666,12 +705,13 @@ export function mockProdStart(finishedSku: string, batchQty: number) {
     const row = compStockFull.find((r) => r.sku === c);
     if (!row || row.on_hand < q) mockErr(400, `Не хватает ${c}: нужно ${q}, есть ${row ? row.on_hand : 0}`, '');
   }
+  const perf = resolvePerformer(employeeId, auto);
   for (const [c, q] of Object.entries(need)) {
     const row = compStockFull.find((r) => r.sku === c)!;
     row.on_hand -= q;
   }
-  activeBatch = { finished_sku: finishedSku, batch_qty: batchQty, started_at: nowStr, batch_ready_at: plan.batch_ready_at, timeline: plan.timeline };
-  return { ...plan, started: true };
+  activeBatch = { finished_sku: finishedSku, batch_qty: batchQty, started_at: nowStr, batch_ready_at: plan.batch_ready_at, timeline: plan.timeline, started_by: perf.id, started_by_name: empName(perf.id) };
+  return { ...plan, started: true, performer: empName(perf.id) };
 }
 
 export function mockProdCancel() {
@@ -734,12 +774,24 @@ export async function mockAiAsk(question: string, scenario?: { shipment_id: stri
   // Backend недоступен (демо-режим) — спрашиваем нейросеть напрямую из браузера.
   const llm = await askLlm(question, compactFacts(snap, facts), persona, history, 60000, lang);
   if (llm && llm.length >= 15) return { answer: llm, facts_used: facts, via: 'ai' };
-  return { answer: ruleBased(question, snap, facts), facts_used: facts, via: 'rules' };
+  return { answer: ruleBased(question, snap, facts, lang, persona), facts_used: facts, via: 'rules' };
 }
 
 function mockDelaySafe(id: string, dt: string) {
   try { return mockDelay(id, dt); }
   catch (e: any) { return { error: e.message, threatened: [], before: [], after: [] }; }
+}
+
+function hasSubstance(question: string): boolean {
+  const q = question.toLowerCase();
+  if (/(ORD-\d+|SB-ORD-\d+|IN-[A-Z0-9\-]+|SB-IN-[A-Z0-9\-]+)/.test(question.toUpperCase())) return true;
+  if ((question.match(/[A-Za-zА-Яа-яЁё0-9\-]+/g) || []).some((tok) => tok.length >= 3)) return true;
+  const keywords = ['задерж', 'сдви', 'перенос', 'пострад', 'что будет',
+    'свободно', 'складе', 'можно отдать', 'можно ли', 'отдать',
+    'plus', 'air', 'плюс', 'аир', 'датчик', 'базов',
+    'заказ', 'поставк', 'когда', 'сколько', 'хватит', 'срок', 'риск',
+    'order', 'ship', 'stock', 'free', 'when', 'late', 'risk'];
+  return keywords.some((w) => q.includes(w));
 }
 
 function inferDelayFromQuestion(question: string): { shipment_id: string; new_expected_at: string } | undefined {
@@ -762,7 +814,28 @@ function inferDelayFromQuestion(question: string): { shipment_id: string; new_ex
   return { shipment_id: target.shipment_id, new_expected_at: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T10:00:00+03:00` };
 }
 
-function ruleBased(question: string, snapshot: any, facts: any): string {
+function warm(text: string, persona: string, lang: 'ru' | 'en'): string {
+  if (persona !== 'consultant') return text;
+  return text + (lang === 'en'
+    ? ' I can break down a specific order or shipment — just name its ID.'
+    : ' Могу разобрать конкретный заказ или поставку — просто назовите номер.');
+}
+
+function clarify(lang: 'ru' | 'en', persona: string): string {
+  if (lang === 'en') {
+    return persona === 'consultant'
+      ? "Hmm, I didn't quite catch that. Tell me in your own words: ask about stock (what is free), an order by ID (e.g. ORD-003), a shipment, or a potential delay."
+      : "I didn't quite get the question. Please clarify: ask about stock (what is free), an order by ID (e.g. ORD-003), a shipment, or a potential delay.";
+  }
+  return persona === 'consultant'
+    ? 'Хм, не совсем уловил. Скажите своими словами: спросите про склад (что свободно), заказ по номеру (например ORD-003), поставку или возможную задержку.'
+    : 'Не совсем понял вопрос. Уточните, пожалуйста: спросите про склад (что свободно), заказ по номеру (например ORD-003), поставку или возможную задержку.';
+}
+
+function ruleBased(question: string, snapshot: any, facts: any, lang: 'ru' | 'en' = 'ru', persona: string = 'analyst'): string {
+  if (!hasSubstance(question)) {
+    return clarify(lang, persona);
+  }
   const q = question.toLowerCase();
   const stockMap: Record<string, any> = {};
   for (const s of snapshot.stock) stockMap[s.sku] = s;
@@ -811,7 +884,8 @@ function ruleBased(question: string, snapshot: any, facts: any): string {
     const found = ordersMap[oid] || ordersMap[Object.keys(ordersMap).find((k) => k.toUpperCase() === oid) || ''];
     if (!found) return `${oid}: такой записи нет среди активных заказов.`;
     const st = stockMap[found.sku] || {};
-    return `${oid} (${found.sku}): нужно ${found.quantity}, зарезервировано ${found.reserved_qty}, отгружено ${found.shipped_qty}. Осталось ${found.remaining}, не зарезервировано ${found.unreserved}. Свободно на складе ${st.free ?? '?'} (всего ${st.on_hand ?? '?'}, удержано ${st.reserved ?? '?'}). Готовность ${found.readiness || 'неизвестна (нехватка ' + found.shortage + ')'}, срок ${found.due_at}, риск ${found.atRisk ? 'да' : 'нет'}.`;
+    const detail = `${oid} (${found.sku}): нужно ${found.quantity}, зарезервировано ${found.reserved_qty}, отгружено ${found.shipped_qty}. Осталось ${found.remaining}, не зарезервировано ${found.unreserved}. Свободно на складе ${st.free ?? '?'} (всего ${st.on_hand ?? '?'}, удержано ${st.reserved ?? '?'}). Готовность ${found.readiness || 'неизвестна (нехватка ' + found.shortage + ')'}, срок ${found.due_at}, риск ${found.atRisk ? 'да' : 'нет'}.`;
+    return warm(detail, persona, lang);
   }
   if (['свободно', 'складе', 'можно отдать', 'можно ли', 'отдать', 'plus', 'air', 'плюс', 'аир', 'датчик', 'базов'].some((w) => q.includes(w))) {
     const plus = stockMap['FG-PLUS'], air = stockMap['FG-AIR'];
@@ -842,8 +916,9 @@ function ruleBased(question: string, snapshot: any, facts: any): string {
   }
   if (q.includes('in-unknown') || q.includes('unknown')) return `IN-UNKNOWN: такой записи нет. В facts есть только: ${[...known].sort().join(', ')}.`;
   const kpi = snapshot.kpi || {};
-  return `Активных заказов ${kpi.active_orders}, с возможным риском ${kpi.at_risk}, с нехваткой ${kpi.shortage_orders}. ` +
+  const total = `Активных заказов ${kpi.active_orders}, с возможным риском ${kpi.at_risk}, с нехваткой ${kpi.shortage_orders}. ` +
     snapshot.stock.map((s: any) => `${s.sku}: свободно ${s.free} из ${s.on_hand}`).join('; ') + '.';
+  return warm(total, persona, lang);
 }
 
 export function mockFixtureName() { return fixtureName; }

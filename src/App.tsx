@@ -14,7 +14,7 @@ import Landing from './pages/Landing';
 import Gid from './pages/Gid';
 import { fmtDate } from './format';
 
-type Tab = 'dash' | 'orders' | 'ships' | 'staff' | 'scenario' | 'prod' | 'ai' | 'consult';
+type Tab = 'dash' | 'orders' | 'ships' | 'staff' | 'scenario' | 'prod' | 'consult';
 type View = 'landing' | 'app' | 'gid';
 
 export default function App() {
@@ -50,7 +50,6 @@ export default function App() {
     { id: 'staff', label: t('nav_staff'), hint: t('nav_staff_hint') },
     { id: 'scenario', label: t('nav_scenario'), hint: t('nav_scenario_hint') },
     { id: 'prod', label: t('nav_prod'), hint: t('nav_prod_hint') },
-    { id: 'ai', label: t('nav_ai'), hint: t('nav_ai_hint') },
     { id: 'consult', label: t('nav_consult'), hint: t('nav_consult_hint') },
   ];
 
@@ -62,7 +61,6 @@ export default function App() {
     { id: 'staff', label: t('tab_staff') },
     { id: 'scenario', label: t('tab_scenario') },
     { id: 'prod', label: t('tab_prod') },
-    { id: 'ai', label: t('tab_ai') },
     { id: 'consult', label: t('tab_consult') },
   ];
 
@@ -73,7 +71,6 @@ export default function App() {
     staff: { h: t('sec_staff_h'), lead: t('sec_staff_lead') },
     scenario: { h: t('sec_scenario_h'), lead: t('sec_scenario_lead') },
     prod: { h: t('sec_prod_h'), lead: t('sec_prod_lead') },
-    ai: { h: t('sec_ai_h'), lead: t('sec_ai_lead') },
     consult: { h: t('sec_consult_h'), lead: t('sec_consult_lead') },
   };
 
@@ -154,7 +151,6 @@ export default function App() {
             <span className={mock ? 'fc-dot mock' : 'fc-dot'} />
             {mock ? t('demo') : t('online')} · {snap ? fmtDate(snap.now) : '—'}
           </span>
-          <button className="work-btn" onClick={load}>{t('refresh')}</button>
           <Prefs />
         </div>
       </header>
@@ -229,10 +225,7 @@ export default function App() {
             {tab === 'staff' && <Staff snapshot={snap} />}
             {tab === 'scenario' && <Scenario snapshot={snap} />}
             {tab === 'prod' && <Production snapshot={snap} />}
-            {/* Оба чата всегда смонтированы: история не теряется при переключении */}
-            <div style={{ display: tab === 'ai' ? undefined : 'none' }}>
-              <AiChat persona="analyst" />
-            </div>
+            {/* Чат смонтирован всегда: история не теряется при переключении */}
             <div style={{ display: tab === 'consult' ? undefined : 'none' }}>
               <AiChat persona="consultant" />
             </div>

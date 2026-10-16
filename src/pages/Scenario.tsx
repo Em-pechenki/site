@@ -91,7 +91,11 @@ export default function Scenario({ snapshot }: { snapshot: any }) {
     now: (r) => r.now,
     change: (r) => (r.threatened ? 2 : r.risk ? 1 : 0),
   }), []);
-  const filtered = changeFilter === 'changed' ? merged.filter((r) => r.threatened || r.risk) : merged;
+  const filtered = changeFilter === 'changed'
+    ? merged.filter((r) => r.threatened || r.risk)
+    : changeFilter === 'unchanged'
+      ? merged.filter((r) => !r.threatened && !r.risk)
+      : merged;
   const { sorted, skey, dir, toggle } = useSorted(filtered, acc, 'id');
 
   function exportScenarioCsv() {
@@ -153,8 +157,11 @@ export default function Scenario({ snapshot }: { snapshot: any }) {
               <select value={changeFilter} onChange={(e) => setChangeFilter(e.target.value)}>
                 <option value="all">{t('sc_filter_all')}</option>
                 <option value="changed">{t('sc_filter_changed')}</option>
+                <option value="unchanged">{t('sc_filter_unchanged')}</option>
               </select>
             </label>
+            <button className="ghost" onClick={exportScenarioCsv} title={t('sc_csv_title')}>{t('o_csv')}</button>
+            <button className="ghost" onClick={exportScenarioJson} title={t('sc_json_title')}>{t('b_json')}</button>
           </div>
           <div className="tbl-wrap">
             <table className="tbl tbl-fit">
@@ -179,16 +186,6 @@ export default function Scenario({ snapshot }: { snapshot: any }) {
                 ))}
               </tbody>
             </table>
-          </div>
-        </div>
-      )}
-      {res && (
-        <div className="card" style={{ borderColor: res.threatened.length ? 'rgba(240,135,140,0.35)' : 'rgba(127,214,164,0.3)' }}>
-          <h3><span className="n">03</span> {t('sc_total')} · {res.threatened.length ? res.threatened.join(', ') : t('sc_no_threats')}</h3>
-          <div style={{ fontWeight: 300, color: 'var(--muted-fg)', fontSize: 14, lineHeight: 1.7 }}>{res.explanation}</div>
-          <div className="toolbar" style={{ marginTop: 12 }}>
-            <button className="ghost" onClick={exportScenarioCsv} title={t('sc_csv_title')}>{t('o_csv')}</button>
-            <button className="ghost" onClick={exportScenarioJson} title={t('sc_json_title')}>{t('b_json')}</button>
           </div>
         </div>
       )}

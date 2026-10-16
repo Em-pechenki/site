@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { createOrder, reserve, ship, unreserve, cancelShip, orders as fetchOrders } from '../api';
+import { createOrder, reserve, ship, unreserve, cancelShip, orders as fetchOrders, employees as fetchStaff } from '../api';
 import { fmtDate } from '../format';
 import { RiskBadge, StatusBadge } from '../components/Badges';
 import { logOp } from '../opslog';
@@ -8,6 +8,11 @@ import { useT, useLang } from '../i18n';
 import { useSorted, type Accessors } from '../components/SortTable';
 import { ColTh, useColumns, visibleRows } from '../components/Columns';
 import ProductPicker, { useCatalog } from '../components/ProductPicker';
+
+function staffName(list: any[], id: string | null | undefined): string {
+  if (!id) return '';
+  return list.find((e: any) => e.id === id)?.name || id;
+}
 
 export default function Orders({ snapshot, onChange }: { snapshot: any; onChange: () => void }) {
   const t = useT();
@@ -20,9 +25,18 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
   const [form, setForm] = useState({ customer: '', sku: 'FG-AIR', quantity: 5, due_at: '2026-11-03T17:00' });
   const [qtyMap, setQtyMap] = useState<Record<string, number>>({});
   const [query, setQuery] = useState('');
+  const [staff, setStaff] = useState<any[]>([]);
+  const [shipOpen, setShipOpen] = useState<string | null>(null);
+  const [shipPick, setShipPick] = useState<Record<string, string>>({});
   const openCols = useColumns();
   const closedCols = useColumns();
   const catalog = useCatalog(snapshot);
+
+  useEffect(() => {
+    fetchStaff().then((r) => setStaff(r.employees || [])).catch(() => setStaff([]));
+  }, []);
+  const onShift = staff.filter((e: any) => e.on_shift);
+  const empName = (id: string | null | undefined) => staffName(staff, id);
 
   const freeBySku: Record<string, number> = {};
   for (const s of snapshot?.stock || []) freeBySku[s.sku] = s.free ?? 0;
@@ -86,7 +100,8 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
     booked: (o) => o.reserved_qty,
     ready: (o) => o.readiness || null,
     state: (o) => ((o.shortage || 0) > 0 ? 2 : o.atRisk ? 1 : 0),
-  }), []);
+    assignee: (o) => staffName(staff, o.assignee),
+  }), [staff]);
   const { sorted: sortedOpen, skey, dir, toggle } = useSorted(list, openAcc, 'id');
 
   const closedAcc: Accessors<any> = useMemo(() => ({
@@ -95,7 +110,8 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
     sku: (o) => o.sku,
     qty: (o) => o.quantity,
     state: (o) => o.status,
-  }), []);
+    assignee: (o) => staffName(staff, o.assignee),
+  }), [staff]);
   const { sorted: sortedClosed, skey: cKey, dir: cDir, toggle: cToggle } = useSorted(closed, closedAcc, 'id');
 
   useEffect(() => { loadClosed(); }, []);
@@ -128,7 +144,7 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
     }
   }
 
-  async function doShip(o: any) {
+  async function doShip(o: any, performer?: { employee_id?: string; auto?: boolean }) {
     const qty = shipQtyFor(o);
     if (!(qty > 0)) {
       setMsg(t('o_nothing_ship', { id: o.order_id }));
@@ -136,9 +152,11 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
     }
     setMsg('');
     try {
-      await ship(o.order_id, qty);
-      logOp({ action: 'ship', order_id: o.order_id, sku: o.sku, qty, note: t('log_ship_note', { qty }) });
-      setMsg(t('o_shipped_ok', { qty, id: o.order_id }));
+      const r: any = await ship(o.order_id, qty, performer);
+      const who = r?.performer ? ` · ${r.performer}` : '';
+      logOp({ action: 'ship', order_id: o.order_id, sku: o.sku, qty, note: t('log_ship_note', { qty }) + who });
+      setMsg(t('o_shipped_ok', { qty, id: o.order_id }) + who);
+      setShipOpen(null);
       onChange();
     } catch (e: any) {
       setMsg(t('o_err') + `${e.message}${e.hint ? ' — ' + e.hint : ''}`);
@@ -162,7 +180,7 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
     }
   }
 
-  async function doCancelShip(o: any) {
+  async function doCancelShip(o: any, performer?: { employee_id?: string; auto?: boolean }) {
     const qty = cancelShipQtyFor(o);
     if (!(qty > 0)) {
       setMsg(t('o_nothing_cancel_ship', { id: o.order_id }));
@@ -170,10 +188,11 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
     }
     setMsg('');
     try {
-      const r: any = await cancelShip(o.order_id, qty);
-      logOp({ action: 'cancel_ship', order_id: o.order_id, sku: o.sku, qty, note: t('log_cancel_ship_note', { qty }) });
-      setMsg(t('o_ship_canceled_ok', { qty, id: o.order_id }) + (o.status !== 'active' ? ' ' + t('o_reopen_ok', { id: o.order_id }) : ''));
-      void r;
+      const r: any = await cancelShip(o.order_id, qty, performer);
+      const who = r?.performer ? ` · ${r.performer}` : '';
+      logOp({ action: 'cancel_ship', order_id: o.order_id, sku: o.sku, qty, note: t('log_cancel_ship_note', { qty }) + who });
+      setMsg(t('o_ship_canceled_ok', { qty, id: o.order_id }) + (o.status !== 'active' ? ' ' + t('o_reopen_ok', { id: o.order_id }) : '') + who);
+      setShipOpen(null);
       onChange();
       if (showClosed) loadClosed();
     } catch (e: any) {
@@ -210,6 +229,7 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
       [H.risk]: o.atRisk ? 'yes' : 'no',
       [H.sh]: o.shortage || 0,
       [H.st]: o.status || 'active',
+      [H.who]: empName(o.assignee) || '',
     }));
   }
 
@@ -218,14 +238,14 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
   // Снятые галочки колонок выкидывают колонку из файла.
   function exportRows(): Record<string, unknown>[] {
     const H = lang === 'en'
-      ? { id: 'order_id', cust: 'customer', sku: 'sku', qty: 'qty', res: 'reserved', shp: 'shipped', rem: 'remaining', unr: 'unreserved', rdy: 'readiness', due: 'due_at', risk: 'atRisk', sh: 'shortage', st: 'status' }
-      : { id: 'order_id', cust: 'customer', sku: 'sku', qty: 'quantity', res: 'reserved_qty', shp: 'shipped_qty', rem: 'remaining', unr: 'unreserved', rdy: 'readiness', due: 'due_at', risk: 'atRisk', sh: 'shortage', st: 'статус' };
+      ? { id: 'order_id', cust: 'customer', sku: 'sku', qty: 'qty', res: 'reserved', shp: 'shipped', rem: 'remaining', unr: 'unreserved', rdy: 'readiness', due: 'due_at', risk: 'atRisk', sh: 'shortage', st: 'status', who: 'assignee' }
+      : { id: 'order_id', cust: 'customer', sku: 'sku', qty: 'quantity', res: 'reserved_qty', shp: 'shipped_qty', rem: 'remaining', unr: 'unreserved', rdy: 'readiness', due: 'due_at', risk: 'atRisk', sh: 'shortage', st: 'статус', who: 'ответственный' };
     const OPEN_MAP: Record<string, string | string[]> = {
       id: H.id, customer: H.cust, sku: H.sku, qty: H.qty, booked: H.res, ready: H.rdy,
-      state: [H.risk, H.sh, H.st],
+      state: [H.risk, H.sh, H.st], assignee: H.who,
     };
     const CLOSED_MAP: Record<string, string | string[]> = {
-      id: H.id, customer: H.cust, sku: H.sku, qty: H.qty, state: H.st,
+      id: H.id, customer: H.cust, sku: H.sku, qty: H.qty, state: H.st, assignee: H.who,
     };
     const rows = visibleRows(orderRows(sortedOpen, H), openCols.hidden, OPEN_MAP);
     if (showClosed) rows.push(...visibleRows(orderRows(sortedClosed, H), closedCols.hidden, CLOSED_MAP));
@@ -309,7 +329,8 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
                 <ColTh label={t('o_th_booked')} k="booked" skey={skey} dir={dir} onSort={toggle} title={t('sort_title')} checked={!openCols.isOff('booked')} onToggle={openCols.toggleCol} />
                 <ColTh label={t('o_th_ready')} k="ready" skey={skey} dir={dir} onSort={toggle} title={t('sort_title')} checked={!openCols.isOff('ready')} onToggle={openCols.toggleCol} />
                 <ColTh label={t('o_th_state')} k="state" skey={skey} dir={dir} onSort={toggle} title={t('sort_title')} checked={!openCols.isOff('state')} onToggle={openCols.toggleCol} />
-                <th>{t('th_actions')}</th>
+                <ColTh label={t('s_th_assignee')} k="assignee" skey={skey} dir={dir} onSort={toggle} title={t('sort_title')} checked={!openCols.isOff('assignee')} onToggle={openCols.toggleCol} />
+                <th className="col-actions">{t('th_actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -322,8 +343,9 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
                   <td className={openCols.isOff('booked') ? 'mono col-off' : 'mono'}>{o.reserved_qty}</td>
                   <td className={openCols.isOff('ready') ? 'col-off' : ''}>{o.readiness ? fmtDate(o.readiness) : <span className="badge badge-red">{t('o_short_is', { n: o.shortage })}</span>}</td>
                   <td className={openCols.isOff('state') ? 'col-off' : ''}><RiskBadge atRisk={o.atRisk} shortage={o.shortage} /></td>
-                  <td style={{ whiteSpace: 'nowrap' }}>
-                    <span className="actions-box">
+                  <td className={openCols.isOff('assignee') ? 'col-off' : ''}>{empName(o.assignee) || '—'}</td>
+                  <td style={{ whiteSpace: 'nowrap' }} className="col-actions">
+                    <span className="actions-row">
                     <input
                       type="number"
                       min={1}
@@ -335,9 +357,43 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
                     />{' '}
                     <button className="ghost small" disabled={o.unreserved <= 0} title={o.unreserved <= 0 ? t('o_all_booked') : `${t('o_reserve')} ${reserveQtyFor(o)}`} onClick={() => doReserve(o)}>{t('o_reserve')}</button>{' '}
                     {(o.shipped_qty ?? 0) > 0 ? (
-                      <button className="ghost small" title={t('o_cancel_ship_title', { n: cancelShipQtyFor(o) })} onClick={() => doCancelShip(o)}>{t('o_cancel_ship')}</button>
+                      shipOpen === `${o.order_id}|cancel` ? (
+                        <>
+                          <select
+                            value={shipPick[o.order_id] || 'auto'}
+                            onChange={(e) => setShipPick({ ...shipPick, [o.order_id]: e.target.value })}
+                            title={t('s_assign')}
+                          >
+                            <option value="auto">{t('s_assign_auto')}</option>
+                            {onShift.map((e: any) => (
+                              <option key={e.id} value={e.id}>{e.name}</option>
+                            ))}
+                          </select>
+                          <button className="ghost small" onClick={() => doCancelShip(o, !shipPick[o.order_id] || shipPick[o.order_id] === 'auto' ? { auto: true } : { employee_id: shipPick[o.order_id] })}>{t('o_cancel_ship_confirm')}</button>
+                          <button className="ghost small" onClick={() => setShipOpen(null)}>{t('s_assign_cancel')}</button>
+                        </>
+                      ) : (
+                        <button className="ghost small" title={t('o_cancel_ship_title', { n: cancelShipQtyFor(o) })} onClick={() => setShipOpen(`${o.order_id}|cancel`)}>{t('o_cancel_ship')}</button>
+                      )
                     ) : (
-                      <button className="ghost small" disabled={o.reserved_qty <= 0} title={o.reserved_qty <= 0 ? t('o_no_book') : `${t('o_ship')} ${shipQtyFor(o)}`} onClick={() => doShip(o)}>{t('o_ship')}</button>
+                      shipOpen === `${o.order_id}|ship` ? (
+                        <>
+                          <select
+                            value={shipPick[o.order_id] || 'auto'}
+                            onChange={(e) => setShipPick({ ...shipPick, [o.order_id]: e.target.value })}
+                            title={t('s_assign')}
+                          >
+                            <option value="auto">{t('s_assign_auto')}</option>
+                            {onShift.map((e: any) => (
+                              <option key={e.id} value={e.id}>{e.name}</option>
+                            ))}
+                          </select>
+                          <button className="ghost small" disabled={o.reserved_qty <= 0} onClick={() => doShip(o, !shipPick[o.order_id] || shipPick[o.order_id] === 'auto' ? { auto: true } : { employee_id: shipPick[o.order_id] })}>{t('o_ship_confirm')}</button>
+                          <button className="ghost small" onClick={() => setShipOpen(null)}>{t('s_assign_cancel')}</button>
+                        </>
+                      ) : (
+                        <button className="ghost small" disabled={o.reserved_qty <= 0} title={o.reserved_qty <= 0 ? t('o_no_book') : `${t('o_ship')} ${shipQtyFor(o)}`} onClick={() => setShipOpen(`${o.order_id}|ship`)}>{t('o_ship')}</button>
+                      )
                     )}{' '}
                     {o.reserved_qty > 0 && (
                       <><button className="ghost small" title={t('o_unreserve_title', { n: unreserveQtyFor(o) })} onClick={() => doUnreserve(o)}>{t('o_unreserve')}</button>{' '}</>
@@ -362,7 +418,8 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
                 <ColTh label={t('o_th_product')} k="sku" skey={cKey} dir={cDir} onSort={cToggle} title={t('sort_title')} checked={!closedCols.isOff('sku')} onToggle={closedCols.toggleCol} />
                 <ColTh label={t('o_th_qty')} k="qty" skey={cKey} dir={cDir} onSort={cToggle} title={t('sort_title')} checked={!closedCols.isOff('qty')} onToggle={closedCols.toggleCol} />
                 <ColTh label={t('o_th_state')} k="state" skey={cKey} dir={cDir} onSort={cToggle} title={t('sort_title')} checked={!closedCols.isOff('state')} onToggle={closedCols.toggleCol} />
-                <th>{t('th_actions')}</th>
+                <ColTh label={t('s_th_assignee')} k="assignee" skey={cKey} dir={cDir} onSort={cToggle} title={t('sort_title')} checked={!closedCols.isOff('assignee')} onToggle={closedCols.toggleCol} />
+                <th className="col-actions">{t('th_actions')}</th>
               </tr></thead>
               <tbody>
                 {sortedClosed.map((o: any) => (
@@ -372,9 +429,27 @@ export default function Orders({ snapshot, onChange }: { snapshot: any; onChange
                     <td className={closedCols.isOff('sku') ? 'col-off' : ''}>{o.sku}</td>
                     <td className={closedCols.isOff('qty') ? 'col-off' : ''}>{o.quantity}</td>
                     <td className={closedCols.isOff('state') ? 'col-off' : ''}><StatusBadge status={o.status} /></td>
-                    <td style={{ whiteSpace: 'nowrap' }}>
+                    <td className={closedCols.isOff('assignee') ? 'col-off' : ''}>{empName(o.assignee) || '—'}</td>
+                    <td style={{ whiteSpace: 'nowrap' }} className="col-actions">
                       {o.status === 'shipped' && (o.shipped_qty ?? o.quantity) > 0 && (
-                        <button className="ghost small" title={t('o_cancel_ship_title', { n: o.shipped_qty ?? o.quantity })} onClick={() => doCancelShip(o)}>{t('o_cancel_ship')}</button>
+                        shipOpen === `${o.order_id}|cancel` ? (
+                          <span className="actions-row">
+                            <select
+                              value={shipPick[o.order_id] || 'auto'}
+                              onChange={(e) => setShipPick({ ...shipPick, [o.order_id]: e.target.value })}
+                              title={t('s_assign')}
+                            >
+                              <option value="auto">{t('s_assign_auto')}</option>
+                              {onShift.map((e: any) => (
+                                <option key={e.id} value={e.id}>{e.name}</option>
+                              ))}
+                            </select>
+                            <button className="ghost small" onClick={() => doCancelShip(o, !shipPick[o.order_id] || shipPick[o.order_id] === 'auto' ? { auto: true } : { employee_id: shipPick[o.order_id] })}>{t('o_cancel_ship_confirm')}</button>
+                            <button className="ghost small" onClick={() => setShipOpen(null)}>{t('s_assign_cancel')}</button>
+                          </span>
+                        ) : (
+                          <button className="ghost small" title={t('o_cancel_ship_title', { n: o.shipped_qty ?? o.quantity })} onClick={() => setShipOpen(`${o.order_id}|cancel`)}>{t('o_cancel_ship')}</button>
+                        )
                       )}
                     </td>
                   </tr>

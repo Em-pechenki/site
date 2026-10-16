@@ -4,6 +4,29 @@ import { useT, useLang } from '../i18n';
 
 type Msg = { role: 'user' | 'ai'; text: string };
 
+const HIST_KEY = (persona: string) => `yabloki-chat-${persona}-v1`;
+const HIST_LIMIT = 50;
+
+function loadHistory(persona: string): Msg[] {
+  try {
+    const txt = localStorage.getItem(HIST_KEY(persona));
+    if (!txt) return [];
+    const arr = JSON.parse(txt);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((m: any) => m && (m.role === 'user' || m.role === 'ai') && typeof m.text === 'string')
+      .slice(-HIST_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(persona: string, msgs: Msg[]) {
+  try {
+    localStorage.setItem(HIST_KEY(persona), JSON.stringify(msgs.slice(-HIST_LIMIT)));
+  } catch { /* переполнен — историю не сохраняем */ }
+}
+
 export default function AiChat({
   persona = 'analyst',
   compact = false,
@@ -18,7 +41,7 @@ export default function AiChat({
     ? [t('ai_chip_c1'), t('ai_chip_c2'), t('ai_chip_c3'), t('ai_chip_c4')]
     : [t('ai_chip_a1'), t('ai_chip_a2'), t('ai_chip_a3'), t('ai_chip_a4')];
   const [q, setQ] = useState('');
-  const [msgs, setMsgs] = useState<Msg[]>([]);
+  const [msgs, setMsgs] = useState<Msg[]>(() => loadHistory(persona));
   const [facts, setFacts] = useState<any>(null);
   const [via, setVia] = useState('');
   const [loading, setLoading] = useState(false);
@@ -30,6 +53,10 @@ export default function AiChat({
     const el = histRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [msgs, loading]);
+
+  useEffect(() => {
+    saveHistory(persona, msgs);
+  }, [msgs, persona]);
 
   async function ask(question: string) {
     const qq = question.trim();
@@ -90,6 +117,11 @@ export default function AiChat({
         <button onClick={() => ask(q)} disabled={loading}>{loading ? t('ai_thinking') : t('ai_ask')}</button>
       </div>
       {err && <div className="error">{err}</div>}
+      {msgs.length > 0 && (
+        <div>
+          <button className="link" onClick={() => setMsgs([])}>{t('ai_clear')}</button>
+        </div>
+      )}
       {facts && (
         <div className="facts">
           <button className="link" onClick={() => setShowFacts(!showFacts)}>

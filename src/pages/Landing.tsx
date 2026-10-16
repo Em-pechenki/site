@@ -3,7 +3,7 @@ import { useT } from '../i18n';
 import { Prefs } from '../components/Badges';
 import FirecodeLogo from '../components/FirecodeLogo';
 
-export type LandingTab = 'dash' | 'orders' | 'ships' | 'staff' | 'scenario' | 'prod' | 'ai' | 'consult';
+export type LandingTab = 'dash' | 'orders' | 'ships' | 'staff' | 'scenario' | 'prod' | 'consult';
 
 export default function Landing({
   snap,

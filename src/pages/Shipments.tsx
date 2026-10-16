@@ -20,6 +20,7 @@ export default function Shipments({ snapshot, shipmentsAll, onChange }: { snapsh
   const [staff, setStaff] = useState<any[]>([]);
   const [assignOpen, setAssignOpen] = useState<string | null>(null);
   const [assignPick, setAssignPick] = useState<Record<string, string>>({});
+  const [recvOpen, setRecvOpen] = useState<string | null>(null);
   const shipCols = useColumns();
   const all = shipmentsAll.length ? shipmentsAll : (snapshot?.shipments_expected || []);
   const humanSku = (sku: string) => (sku === 'FG-AIR' ? 'air' : sku === 'FG-PLUS' ? 'air plus' : sku);
@@ -82,13 +83,20 @@ export default function Shipments({ snapshot, shipmentsAll, onChange }: { snapsh
     }
   }
 
-  async function doReceive(id: string) {
+  function pickOf(id: string) {
+    const v = assignPick[id];
+    return !v || v === 'auto' ? { auto: true } : { employee_id: v };
+  }
+
+  async function doReceive(id: string, performer?: { employee_id?: string; auto?: boolean }) {
     setMsg('');
     try {
-      await receive(id);
+      const r: any = await receive(id, performer);
       const s = all.find((x: any) => x.shipment_id === id);
-      logOp({ action: 'receive', shipment_id: id, sku: s?.sku, qty: s?.quantity, note: t('log_receive_note', { qty: s?.quantity ?? '' }) });
-      setMsg(t('s_received_ok', { id }));
+      const who = r?.performer ? ` · ${r.performer}` : '';
+      logOp({ action: 'receive', shipment_id: id, sku: s?.sku, qty: s?.quantity, note: t('log_receive_note', { qty: s?.quantity ?? '' }) + who });
+      setMsg(t('s_received_ok', { id }) + who);
+      setRecvOpen(null);
       onChange();
       loadStaff();
     } catch (e: any) {
@@ -96,13 +104,15 @@ export default function Shipments({ snapshot, shipmentsAll, onChange }: { snapsh
     }
   }
 
-  async function doUnreceive(id: string) {
+  async function doUnreceive(id: string, performer?: { employee_id?: string; auto?: boolean }) {
     setMsg('');
     try {
-      await unreceive(id);
+      const r: any = await unreceive(id, performer);
       const s = all.find((x: any) => x.shipment_id === id);
-      logOp({ action: 'unreceive', shipment_id: id, sku: s?.sku, qty: s?.quantity, note: t('log_unreceive_note', { qty: s?.quantity ?? '' }) });
-      setMsg(t('s_unreceived_ok', { id }));
+      const who = r?.performer ? ` · ${r.performer}` : '';
+      logOp({ action: 'unreceive', shipment_id: id, sku: s?.sku, qty: s?.quantity, note: t('log_unreceive_note', { qty: s?.quantity ?? '' }) + who });
+      setMsg(t('s_unreceived_ok', { id }) + who);
+      setRecvOpen(null);
       onChange();
       loadStaff();
     } catch (e: any) {
@@ -219,7 +229,7 @@ export default function Shipments({ snapshot, shipmentsAll, onChange }: { snapsh
                 <ColTh label={t('th_arrives')} k="arrives" skey={tdKey} dir={tdDir} onSort={tdToggle} title={t('sort_title')} checked={!shipCols.isOff('arrives')} onToggle={shipCols.toggleCol} />
                 <ColTh label={t('o_th_state')} k="state" skey={tdKey} dir={tdDir} onSort={tdToggle} title={t('sort_title')} checked={!shipCols.isOff('state')} onToggle={shipCols.toggleCol} />
                 <ColTh label={t('s_th_assignee')} k="assignee" skey={tdKey} dir={tdDir} onSort={tdToggle} title={t('sort_title')} checked={!shipCols.isOff('assignee')} onToggle={shipCols.toggleCol} />
-                <th>{t('th_actions')}</th>
+                <th className="col-actions">{t('th_actions')}</th>
               </tr></thead>
               <tbody>
                 {rows.map((s: any) => {
@@ -239,8 +249,8 @@ export default function Shipments({ snapshot, shipmentsAll, onChange }: { snapsh
                           ? <span className="badge badge-red">{t('s_overdue_b')}</span>
                           : <span className="badge badge-blue">{t('s_in_transit')}</span>}</td>
                       <td className={shipCols.isOff('assignee') ? 'col-off' : ''}>{name || <span className="muted">{t('s_unassigned')}</span>}</td>
-                      <td style={{ whiteSpace: 'nowrap' }}>
-                        <span className="actions-box">
+                      <td style={{ whiteSpace: 'nowrap' }} className="col-actions">
+                        <span className="actions-row">
                           {!isDone && (
                             assignOpen === s.shipment_id ? (
                               <>
@@ -257,15 +267,47 @@ export default function Shipments({ snapshot, shipmentsAll, onChange }: { snapsh
                                 <button className="ghost small" onClick={() => doAssign(s.shipment_id)}>{name ? t('s_reassign') : t('s_assign')}</button>
                                 <button className="ghost small" onClick={() => setAssignOpen(null)}>{t('s_assign_cancel')}</button>
                               </>
+                            ) : recvOpen === `${s.shipment_id}|receive` ? (
+                              <>
+                                <select
+                                  value={assignPick[s.shipment_id] || 'auto'}
+                                  onChange={(e) => setAssignPick({ ...assignPick, [s.shipment_id]: e.target.value })}
+                                  title={t('s_assign')}
+                                >
+                                  <option value="auto">{t('s_assign_auto')}</option>
+                                  {onShift.map((e: any) => (
+                                    <option key={e.id} value={e.id}>{e.name}</option>
+                                  ))}
+                                </select>
+                                <button className="ghost small" onClick={() => doReceive(s.shipment_id, pickOf(s.shipment_id))}>{t('s_accept')}</button>
+                                <button className="ghost small" onClick={() => setRecvOpen(null)}>{t('s_assign_cancel')}</button>
+                              </>
                             ) : (
                               <>
                                 <button className="ghost small" onClick={() => setAssignOpen(s.shipment_id)}>{name ? t('s_reassign') : t('s_assign')}</button>
-                                <button className="ghost small" onClick={() => doReceive(s.shipment_id)}>{t('s_accept')}</button>
+                                <button className="ghost small" onClick={() => setRecvOpen(`${s.shipment_id}|receive`)}>{t('s_accept')}</button>
                               </>
                             )
                           )}
                           {isDone && (
-                            <button className="ghost small" title={t('s_unreceive_title')} onClick={() => doUnreceive(s.shipment_id)}>{t('s_unreceive')}</button>
+                            recvOpen === `${s.shipment_id}|unreceive` ? (
+                              <>
+                                <select
+                                  value={assignPick[s.shipment_id] || 'auto'}
+                                  onChange={(e) => setAssignPick({ ...assignPick, [s.shipment_id]: e.target.value })}
+                                  title={t('s_assign')}
+                                >
+                                  <option value="auto">{t('s_assign_auto')}</option>
+                                  {onShift.map((e: any) => (
+                                    <option key={e.id} value={e.id}>{e.name}</option>
+                                  ))}
+                                </select>
+                                <button className="ghost small" title={t('s_unreceive_title')} onClick={() => doUnreceive(s.shipment_id, pickOf(s.shipment_id))}>{t('s_unreceive')}</button>
+                                <button className="ghost small" onClick={() => setRecvOpen(null)}>{t('s_assign_cancel')}</button>
+                              </>
+                            ) : (
+                              <button className="ghost small" title={t('s_unreceive_title')} onClick={() => setRecvOpen(`${s.shipment_id}|unreceive`)}>{t('s_unreceive')}</button>
+                            )
                           )}
                         </span>
                       </td>

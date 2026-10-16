@@ -139,6 +139,10 @@ async function req(path: string, init?: RequestInit, timeoutMs = 4000): Promise<
       const err: any = new Error(data?.error || data?.detail || `HTTP ${r.status}`);
       err.status = r.status;
       err.hint = data?.hint || '';
+      if (r.status === 405 && !err.hint) {
+        // Роут есть в коде, но сервер его не знает — запущен старый backend.
+        err.hint = 'похоже, сервер запущен из старого кода: остановите START-LAN (Ctrl+C) и запустите заново';
+      }
       err.data = data;
       throw err;
     }
@@ -223,33 +227,39 @@ function mockModeFallbackNeeded() {
   return true;
 }
 
-export async function ship(orderId: string, qty: number) {
-  try { return await req(`/api/orders/${encodeURIComponent(orderId)}/ship`, { method: 'POST', body: JSON.stringify({ qty }) }); }
+export type PerformerOpts = { employee_id?: string; auto?: boolean };
+
+function performerBody(opts?: PerformerOpts) {
+  return { employee_id: opts?.employee_id ?? null, auto: opts?.auto ?? false };
+}
+
+export async function ship(orderId: string, qty: number, performer?: PerformerOpts) {
+  try { return await req(`/api/orders/${encodeURIComponent(orderId)}/ship`, { method: 'POST', body: JSON.stringify({ qty, ...performerBody(performer) }) }); }
   catch (e: any) {
     if (e?.status >= 400 && e?.status < 500 && !mockMode && e?.hint !== undefined && String(e?.message || '').length > 0 && !isNetwork(e)) {
       // реальный ответ API с ошибкой валидации — пробрасываем
       if (e.status) throw e;
     }
     await mockReady; setMock(true);
-    try { return mock.mockShip(orderId, qty); } catch (m: any) { mockError(m); }
+    try { return mock.mockShip(orderId, qty, performer?.employee_id, performer?.auto); } catch (m: any) { mockError(m); }
   }
 }
 
-export async function receive(shipmentId: string) {
-  try { return await req(`/api/shipments/${encodeURIComponent(shipmentId)}/receive`, { method: 'POST' }); }
+export async function receive(shipmentId: string, performer?: PerformerOpts) {
+  try { return await req(`/api/shipments/${encodeURIComponent(shipmentId)}/receive`, { method: 'POST', body: JSON.stringify(performerBody(performer)) }); }
   catch (e: any) {
     if (e?.status >= 400 && e?.status < 500 && !isNetwork(e) && !mockMode) throw e;
     await mockReady; setMock(true);
-    try { return mock.mockReceive(shipmentId); } catch (m: any) { mockError(m); }
+    try { return mock.mockReceive(shipmentId, performer?.employee_id, performer?.auto); } catch (m: any) { mockError(m); }
   }
 }
 
-export async function unreceive(shipmentId: string) {
-  try { return await req(`/api/shipments/${encodeURIComponent(shipmentId)}/cancel-receive`, { method: 'POST' }); }
+export async function unreceive(shipmentId: string, performer?: PerformerOpts) {
+  try { return await req(`/api/shipments/${encodeURIComponent(shipmentId)}/cancel-receive`, { method: 'POST', body: JSON.stringify(performerBody(performer)) }); }
   catch (e: any) {
     if (e?.status >= 400 && e?.status < 500 && !isNetwork(e) && !mockMode) throw e;
     await mockReady; setMock(true);
-    try { return mock.mockUnreceive(shipmentId); } catch (m: any) { mockError(m); }
+    try { return mock.mockUnreceive(shipmentId, performer?.employee_id, performer?.auto); } catch (m: any) { mockError(m); }
   }
 }
 
@@ -262,12 +272,12 @@ export async function unreserve(orderId: string, qty: number) {
   }
 }
 
-export async function cancelShip(orderId: string, qty: number) {
-  try { return await req(`/api/orders/${encodeURIComponent(orderId)}/cancel-ship`, { method: 'POST', body: JSON.stringify({ qty }) }); }
+export async function cancelShip(orderId: string, qty: number, performer?: PerformerOpts) {
+  try { return await req(`/api/orders/${encodeURIComponent(orderId)}/cancel-ship`, { method: 'POST', body: JSON.stringify({ qty, ...performerBody(performer) }) }); }
   catch (e: any) {
     if (e?.status && e.status >= 400 && e.status < 500 && !isNetwork(e) && !mockMode) throw e;
     await mockReady; setMock(true);
-    try { return mock.mockCancelShip(orderId, qty); } catch (m: any) { mockError(m); }
+    try { return mock.mockCancelShip(orderId, qty, performer?.employee_id, performer?.auto); } catch (m: any) { mockError(m); }
   }
 }
 
@@ -318,12 +328,12 @@ export async function prodPlan(finished_sku: string, batch_qty: number, start_fr
   }
 }
 
-export async function prodStart(finished_sku: string, batch_qty: number) {
-  try { return await req('/api/production/start', { method: 'POST', body: JSON.stringify({ finished_sku, batch_qty }) }); }
+export async function prodStart(finished_sku: string, batch_qty: number, performer?: PerformerOpts) {
+  try { return await req('/api/production/start', { method: 'POST', body: JSON.stringify({ finished_sku, batch_qty, ...performerBody(performer) }) }); }
   catch (e: any) {
     if ((e?.status === 400 || e?.status === 404 || e?.status === 409) && !isNetwork(e) && !mockMode) throw e;
     await mockReady; setMock(true);
-    try { return mock.mockProdStart(finished_sku, batch_qty); } catch (m: any) { mockError(m); }
+    try { return mock.mockProdStart(finished_sku, batch_qty, performer?.employee_id, performer?.auto); } catch (m: any) { mockError(m); }
   }
 }
 

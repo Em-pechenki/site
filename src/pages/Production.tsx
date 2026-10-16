@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { prodStatus, prodPlan, prodStart, prodCancel } from '../api';
+import { prodStatus, prodPlan, prodStart, prodCancel, employees as fetchStaff } from '../api';
 import { fmtDate } from '../format';
 import { useT, useLang } from '../i18n';
 import { useSorted, type Accessors } from '../components/SortTable';
@@ -20,8 +20,15 @@ export default function Production({ snapshot }: { snapshot: any }) {
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const [compFilter, setCompFilter] = useState('all');
+  const [staff, setStaff] = useState<any[]>([]);
+  const [runPick, setRunPick] = useState('auto');
   const compCols = useColumns();
   const shortCols = useColumns();
+
+  useEffect(() => {
+    fetchStaff().then((r) => setStaff(r.employees || [])).catch(() => setStaff([]));
+  }, []);
+  const onShift = staff.filter((e: any) => e.on_shift);
 
   const isLow = (c: any) => c.on_hand === 0 || (c.sku === 'CMP-CO2' && c.on_hand < 8);
 
@@ -95,9 +102,12 @@ export default function Production({ snapshot }: { snapshot: any }) {
   async function doStart() {
     setMsg('');
     try {
-      const r = await prodStart(sku, Number(qty));
+      const performer = !runPick || runPick === 'auto' ? { auto: true } : { employee_id: runPick };
+      const r: any = await prodStart(sku, Number(qty), performer);
       setPlan(r);
-      setMsg(t('p_started'));
+      const who = r?.performer ? ` · ${r.performer}` : '';
+      logOp({ action: 'start_batch', sku, qty: Number(qty), note: `${t('p_run')}${who}` });
+      setMsg(t('p_started') + who);
       load();
     } catch (e: any) {
       setMsg(t('o_err') + `${e.message}${e.hint ? ' — ' + e.hint : ''}`);
@@ -192,7 +202,7 @@ export default function Production({ snapshot }: { snapshot: any }) {
             <div className="muted" style={{ marginTop: 12 }}>
               {t('p_waiting')}: {(status.incoming || []).map((s: any) => `${s.shipment_id} · ${s.sku} ×${s.quantity} · ${fmtDate(s.expected_at)}`).join('  ·  ') || '—'}
             </div>
-            {status.active_batch && <div className="info" style={{ marginTop: 12 }}>{t('p_batch_on')}: {(status.active_batch.finished_sku === 'FG-AIR' ? 'air' : 'air plus')} ×{status.active_batch.batch_qty}, {t('p_will_ready')} {fmtDate(status.active_batch.batch_ready_at)}</div>}
+            {status.active_batch && <div className="info" style={{ marginTop: 12 }}>{t('p_batch_on')}: {(status.active_batch.finished_sku === 'FG-AIR' ? 'air' : 'air plus')} ×{status.active_batch.batch_qty}, {t('p_will_ready')} {fmtDate(status.active_batch.batch_ready_at)}{status.active_batch.started_by_name ? ` · ${t('p_started_by')} ${status.active_batch.started_by_name}` : ''}</div>}
             {status.active_batch && (
               <div className="toolbar" style={{ marginTop: 12 }}>
                 <button className="ghost" title={t('p_cancel_title')} onClick={doCancel}>{t('p_cancel')}</button>
@@ -217,6 +227,14 @@ export default function Production({ snapshot }: { snapshot: any }) {
           <label>{t('p_qty')}<input type="number" min={1} value={qty} onChange={(e) => setQty(Number(e.target.value))} style={{ width: 90 }} /></label>
           <label>{t('p_start')}<input type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} /></label>
           <button onClick={doPlan} disabled={busy}>{busy ? t('sc_busy') : t('p_plan_btn')}</button>
+          <label>{t('s_th_assignee')}
+            <select value={runPick} onChange={(e) => setRunPick(e.target.value)}>
+              <option value="auto">{t('s_assign_auto')}</option>
+              {onShift.map((e: any) => (
+                <option key={e.id} value={e.id}>{e.name}</option>
+              ))}
+            </select>
+          </label>
           <button className="ghost" onClick={doStart}>{t('p_run')}</button>
         </div>
         {msg && <div className="info">{msg}</div>}
