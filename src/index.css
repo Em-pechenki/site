@@ -1728,6 +1728,8 @@ img, svg, table { max-width: 100%; }
 .modal-dialog .ai-chat.has-history > .muted { display: none; }
 .modal-dialog .ai-chat.has-history .fc-section-label,
 .modal-dialog .ai-chat.has-history h3 { display: none; }
+/* Консультант: подсказки — только точки входа, после первого вопроса пропадают */
+.ai-chat.is-consult.has-history .chips { display: none; }
 .modal-dialog .ai-chat.has-history .chips {
   display: flex; flex-wrap: nowrap; overflow-x: auto;
   gap: 8px; margin: 10px 0 2px; padding-bottom: 6px;

@@ -297,7 +297,7 @@ export default function App() {
           </div>
 
           <div className="work-card" key={tab}>
-            {tab === 'dash' && <Dashboard snapshot={snap} shipmentsAll={ships} />}
+            {tab === 'dash' && <Dashboard snapshot={snap} />}
             {tab === 'orders' && <Orders snapshot={snap} onChange={load} />}
             {tab === 'ships' && <Shipments snapshot={snap} shipmentsAll={ships} onChange={load} />}
             {tab === 'staff' && <Staff snapshot={snap} />}

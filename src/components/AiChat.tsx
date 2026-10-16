@@ -82,7 +82,7 @@ export default function AiChat({
   }
 
   return (
-    <div className={(compact ? 'ai-chat compact' : 'ai-chat') + (msgs.length ? ' has-history' : '')}>
+    <div className={(compact ? 'ai-chat compact' : 'ai-chat') + (isConsult ? ' is-consult' : '') + (msgs.length ? ' has-history' : '')}>
       <div className="fc-section-label" style={{ marginBottom: 10 }}>
         {isConsult ? t('ai_label_c') : t('ai_label_a')}
       </div>
@@ -122,7 +122,7 @@ export default function AiChat({
           <button className="link" onClick={() => setMsgs([])}>{t('ai_clear')}</button>
         </div>
       )}
-      {facts && (
+      {persona !== 'consultant' && facts && (
         <div className="facts">
           <button className="link" onClick={() => setShowFacts(!showFacts)}>
             {showFacts ? t('ai_facts_hide') : t('ai_facts_show')}

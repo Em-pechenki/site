@@ -5,15 +5,13 @@ import { useSorted, type Accessors } from '../components/SortTable';
 import { ColTh, useColumns, visibleRows } from '../components/Columns';
 import { downloadCsv, downloadJson, stamp } from '../export';
 
-export default function Dashboard({ snapshot, shipmentsAll }: { snapshot: any; shipmentsAll: any[] }) {
+export default function Dashboard({ snapshot }: { snapshot: any }) {
   const t = useT();
   const lang = useLang();
   const tz = t('msk');
   const [query, setQuery] = useState('');
   const [availFilter, setAvailFilter] = useState('all');
-  const [transitFilter, setTransitFilter] = useState('all');
   const stockCols = useColumns();
-  const transitCols = useColumns();
 
   const stockAcc: Accessors<any> = useMemo(() => ({
     name: (s) => s.sku,
@@ -38,26 +36,6 @@ export default function Dashboard({ snapshot, shipmentsAll }: { snapshot: any; s
     return true;
   });
 
-  const transitAcc: Accessors<any> = useMemo(() => ({
-    id: (s) => s.shipment_id,
-    sku: (s) => s.sku,
-    qty: (s) => s.quantity,
-    arrives: (s) => s.expected_at,
-    state: (s) => (s.status === 'expected' && snapshot && new Date(s.expected_at) < new Date(snapshot.now) ? 1 : 0),
-  }), [snapshot]);
-  const allShips = shipmentsAll.length ? shipmentsAll : (snapshot?.shipments_expected || []);
-  const transitFiltered = allShips.filter((s: any) => s.status === 'expected' || !s.status).filter((s: any) => {
-    if (q) {
-      const hay = `${s.shipment_id} ${(s.supplier || '')} ${s.sku} ${humanSku(s.sku)}`.toLowerCase();
-      if (!q.split(/\s+/).every((tok) => hay.includes(tok))) return false;
-    }
-    const overdue = snapshot && new Date(s.expected_at) < new Date(snapshot.now);
-    if (transitFilter === 'late' && !overdue) return false;
-    if (transitFilter === 'ok' && overdue) return false;
-    return true;
-  });
-  const { sorted: sortedTransit, skey: trKey, dir: trDir, toggle: trToggle } = useSorted(transitFiltered, transitAcc, 'arrives');
-
   function stockHeads() {
     return { prod: t('o_th_product'), hand: t('in_stock'), res: t('booked'), free: t('free'), pct: t('booked_pct') };
   }
@@ -76,26 +54,6 @@ export default function Dashboard({ snapshot, shipmentsAll }: { snapshot: any; s
 
   function exportStockJson() {
     downloadJson(`${lang === 'en' ? 'stock' : 'sklad'}_${stamp()}.json`, sortedStock);
-  }
-
-  function transitHeads() {
-    return { id: t('th_shipment'), sku: t('o_th_product'), qty: t('o_th_qty'), arr: t('th_arrives'), st: t('o_th_state') };
-  }
-
-  function exportTransitCsv() {
-    const H = transitHeads();
-    downloadCsv(`${lang === 'en' ? 'in_transit' : 'v_puti'}_${stamp()}.csv`,
-      visibleRows(sortedTransit.map((s: any) => ({
-        [H.id]: s.shipment_id,
-        [H.sku]: humanSku(s.sku),
-        [H.qty]: s.quantity,
-        [H.arr]: fmtDate(s.expected_at),
-        [H.st]: (snapshot && new Date(s.expected_at) < new Date(snapshot.now)) ? t('overdue_badge') : t('intransit_badge'),
-      })), transitCols.hidden, { id: H.id, sku: H.sku, qty: H.qty, arrives: H.arr, state: H.st }));
-  }
-
-  function exportTransitJson() {
-    downloadJson(`${lang === 'en' ? 'in_transit' : 'v_puti'}_${stamp()}.json`, sortedTransit);
   }
 
   if (!snapshot) return <div className="card">{t('loading_snap')}</div>;
@@ -161,54 +119,6 @@ export default function Dashboard({ snapshot, shipmentsAll }: { snapshot: any; s
                     <td className={stockCols.isOff('reserved') ? 'mono col-off' : 'mono'}>{s.reserved}</td>
                     <td className={stockCols.isOff('free') ? 'mono col-off' : 'mono'}>{s.free}</td>
                     <td className={stockCols.isOff('pct') ? 'mono col-off' : 'mono'}>{pct}%<div className="bar bar-sm"><div className="bar-fill" style={{ width: `${Math.min(100, pct)}%` }} /></div></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-head-row">
-          <div className="sp">
-            <h3><span className="n">02</span> {t('transit_h')}</h3>
-            <div className="muted">{t('transit_lead')}</div>
-          </div>
-          <span className="badge badge-gray">{sortedTransit.length} {t('intransit_badge')}</span>
-        </div>
-        <div className="toolbar" style={{ marginTop: 12 }}>
-          <label>{t('o_state')}
-            <select value={transitFilter} onChange={(e) => setTransitFilter(e.target.value)}>
-              <option value="all">{t('o_all')}</option>
-              <option value="late">{t('overdue_badge')}</option>
-              <option value="ok">{t('intransit_badge')}</option>
-            </select>
-          </label>
-          <button className="ghost" onClick={exportTransitCsv} disabled={!sortedTransit.length} title={t('o_csv_title')}>{t('o_csv')}</button>
-          <button className="ghost" onClick={exportTransitJson} disabled={!sortedTransit.length}>{t('b_json')}</button>
-        </div>
-        <div className="tbl-wrap">
-          <table className="tbl">
-            <thead><tr>
-              <ColTh label={t('th_shipment')} k="id" skey={trKey} dir={trDir} onSort={trToggle} title={t('sort_title')} checked={!transitCols.isOff('id')} onToggle={transitCols.toggleCol} />
-              <ColTh label={t('o_th_product')} k="sku" skey={trKey} dir={trDir} onSort={trToggle} title={t('sort_title')} checked={!transitCols.isOff('sku')} onToggle={transitCols.toggleCol} />
-              <ColTh label={t('o_th_qty')} k="qty" skey={trKey} dir={trDir} onSort={trToggle} title={t('sort_title')} checked={!transitCols.isOff('qty')} onToggle={transitCols.toggleCol} />
-              <ColTh label={t('th_arrives')} k="arrives" skey={trKey} dir={trDir} onSort={trToggle} title={t('sort_title')} checked={!transitCols.isOff('arrives')} onToggle={transitCols.toggleCol} />
-              <ColTh label={t('o_th_state')} k="state" skey={trKey} dir={trDir} onSort={trToggle} title={t('sort_title')} checked={!transitCols.isOff('state')} onToggle={transitCols.toggleCol} />
-            </tr></thead>
-            <tbody>
-              {sortedTransit.map((s: any) => {
-                const overdue = s.status === 'expected' && new Date(s.expected_at) < new Date(now);
-                return (
-                  <tr key={s.shipment_id} className={overdue ? 'row-risk' : ''}>
-                    <td className={transitCols.isOff('id') ? 'mono col-off' : 'mono'}>{s.shipment_id}</td>
-                    <td className={transitCols.isOff('sku') ? 'col-off' : ''}><span className="cx-tag">{s.sku === 'FG-AIR' ? 'air' : 'air plus'}</span></td>
-                    <td className={transitCols.isOff('qty') ? 'mono col-off' : 'mono'}>{s.quantity}</td>
-                    <td className={transitCols.isOff('arrives') ? 'mono col-off' : 'mono'}>{fmtDate(s.expected_at)}</td>
-                    <td className={transitCols.isOff('state') ? 'col-off' : ''}>{overdue
-                      ? <span className="badge badge-red">{t('overdue_badge')}</span>
-                      : <span className="badge badge-blue">{t('intransit_badge')}</span>}</td>
                   </tr>
                 );
               })}
