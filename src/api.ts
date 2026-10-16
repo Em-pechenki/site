@@ -73,6 +73,11 @@ function candidateBases(): string[] {
 let BASE = candidateBases()[0] || 'http://localhost:8000';
 let baseProbe: Promise<string> | null = null;
 let baseProbedAt = 0;
+// Отвечал ли хоть один кандидат на /api/health.
+// false = чистая статика без бэкенда (GitHub Pages): ошибки 4xx от хостинга
+// (POST запрещён → 405) — не повод пугать «старым сервером», уходим в мок.
+let apiAlive = false;
+export function isApiAlive() { return apiAlive; }
 
 function pingApi(base: string, timeoutMs = 1500): Promise<boolean> {
   return new Promise((resolve) => {
@@ -100,8 +105,9 @@ async function resolveBase(): Promise<string> {
   baseProbedAt = Date.now();
   baseProbe = (async () => {
     for (const c of cands) {
-      if (await pingApi(c)) { BASE = c; return c; }
+      if (await pingApi(c)) { BASE = c; apiAlive = true; return c; }
     }
+    apiAlive = false;
     return cands[0] || BASE; // никто не ответил — уйдём в демо-режим
   })();
   return baseProbe;
@@ -145,9 +151,13 @@ async function req(path: string, init?: RequestInit, timeoutMs = 4000): Promise<
       const err: any = new Error(data?.error || data?.detail || `HTTP ${r.status}`);
       err.status = r.status;
       err.hint = data?.hint || '';
-      if (r.status === 405 && !err.hint) {
-        // Роут есть в коде, но сервер его не знает — запущен старый backend.
-        err.hint = 'похоже, сервер запущен из старого кода: остановите START-LAN (Ctrl+C) и запустите заново';
+      if ((r.status === 404 || r.status === 405) && path.startsWith('/api/auth/') && !err.hint) {
+        // Роут есть в коде, но сервер его не знает — запущен старый backend
+        // без авторизации. На чистой статике (GitHub Pages) этот хинт не
+        // показываем: там бэкенда нет вовсе, auth уйдёт в мок (см. ниже).
+        if (apiAlive) {
+          err.hint = 'похоже, сервер запущен из старого кода: остановите START-LAN (Ctrl+C) и запустите заново';
+        }
       }
       err.data = data;
       throw err;
@@ -377,7 +387,9 @@ export async function register(name: string, email: string, password: string) {
       body: JSON.stringify({ name, email, password }),
     });
   } catch (e: any) {
-    if (e?.status && !isNetwork(e)) throw e;
+    // Ошибка валидации живого бэкенда — показываем; иначе (статика без API,
+    // сервер недоступен) молча уходим в локальный демо-вход.
+    if (isApiAlive() && e?.status && !isNetwork(e)) throw e;
     await mockReady;
     setMock(true);
     try {
@@ -395,7 +407,8 @@ export async function login(email: string, password: string) {
       body: JSON.stringify({ email, password }),
     });
   } catch (e: any) {
-    if (e?.status && !isNetwork(e)) throw e;
+    // см. register: 4xx живого бэкенда — наружу, статика — в мок.
+    if (isApiAlive() && e?.status && !isNetwork(e)) throw e;
     await mockReady;
     setMock(true);
     try {
@@ -411,7 +424,8 @@ export async function demoAdminLogin() {
   try {
     return await req('/api/auth/demo', { method: 'POST' });
   } catch (e: any) {
-    if (e?.status && !isNetwork(e)) throw e;
+    // см. register: 4xx живого бэкенда — наружу, статика — в мок.
+    if (isApiAlive() && e?.status && !isNetwork(e)) throw e;
     await mockReady;
     setMock(true);
     return mock.mockDemoAdmin();

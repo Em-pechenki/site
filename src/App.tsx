@@ -214,7 +214,7 @@ export default function App() {
           </span>
           {user && (
             <span className="work-user" title={user.email}>
-              {user.name}
+              <span className="u-name">{user.name}</span>
               {user.role === 'admin' && <span className="badge badge-blue">{t('a_admin_badge')}</span>}
               {user.email === 'admin@demo.local' && <span className="badge badge-warn">{t('a_demo_badge')}</span>}
               <button className="ghost small" onClick={doLogout}>
