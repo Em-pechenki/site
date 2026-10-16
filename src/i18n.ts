@@ -390,7 +390,7 @@ const D: Dict = {
 
   // ---- ai ----
   ai_label_a: { ru: 'ЯблокИИ · ответы по данным', en: 'YablokII · data answers' },
-  ai_label_c: { ru: 'ЯблокИИ · консультант · GPT-6 Астра', en: 'YablokII · advisor · GPT-6 Astra' },
+  ai_label_c: { ru: 'ЯблокИИ · консультант', en: 'YablokII · advisor' },
   ai_h_a: { ru: 'ИИ-аналитик склада', en: 'Warehouse AI analyst' },
   ai_h_c: { ru: 'ИИ-консультант', en: 'AI advisor' },
   ai_lead_a: { ru: 'Отвечаю только по данным из программы. Номера и цифры — из базы. Неизвестную поставку так и назову.', en: 'I answer only from app data. IDs and numbers come from the database. An unknown shipment stays unknown.' },
@@ -404,7 +404,7 @@ const D: Dict = {
   ai_chip_c3: { ru: 'Какой заказ может опоздать?', en: 'Which order may be late?' },
   ai_chip_c4: { ru: 'Что делать, если поставка опаздывает?', en: 'What to do if a shipment is late?' },
   ai_thinking: { ru: 'Думаем…', en: 'Thinking…' },
-  ai_ph: { ru: 'Спросите про склад, заказы, задержки…', en: 'Ask about stock, orders, delays…' },
+  ai_ph: { ru: 'Спросить', en: 'Ask' },
   ai_ask: { ru: 'Спросить ›', en: 'Ask ›' },
   ai_clear: { ru: 'Очистить историю', en: 'Clear history' },
   ai_facts_show: { ru: 'на каких данных основан →', en: 'show grounding data →' },

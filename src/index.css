@@ -1457,10 +1457,10 @@ ul li { margin-bottom: 5px; color: var(--muted-fg); font-size: 14px; font-weight
     display: grid;
     grid-template-columns: auto 1fr;
     grid-template-areas: "logo side";
-    gap: 8px 12px;
+    gap: 6px 10px;
     align-items: center;
     height: auto;
-    padding: 10px 12px;
+    padding: 8px 10px;
     white-space: normal;
     overflow: visible;
   }
@@ -1469,32 +1469,36 @@ ul li { margin-bottom: 5px; color: var(--muted-fg); font-size: 14px; font-weight
   .work-brand .fc-logo-img.sm { width: 46px; height: 46px; }
   /* Кнопки «Главная» нет — на главную ведёт клик по логотипу */
   .work-back { display: none; }
+  /* Правая часть — компактным рядом с переносом, а не столбиком */
   .work-top-right {
     grid-area: side;
     margin-left: 0;
     width: 100%;
     display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    justify-content: center;
-    gap: 8px;
-    flex-wrap: nowrap;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    flex-wrap: wrap;
   }
   .work-live { margin-right: 0; }
-  .work-live { font-size: 10.5px; padding: 6px 10px; }
-  /* Плашка пользователя: в узкой правой колонке разрешаем перенос —
-     имя + бейджи + «Выйти» не распирают шапку и не обрезаются */
+  .work-live { font-size: 10px; padding: 5px 9px; }
+  .work-top-right .badge { padding: 2px 9px; font-size: 10.5px; }
+  .work-top-right .prefs-seg-btn { padding: 5px 10px !important; font-size: 10.5px !important; }
+  .work-top-right .prefs-theme { width: 30px; height: 30px; min-height: 0 !important; }
+  /* Плашка пользователя: ужата, внутри тоже перенос */
   .work-user {
     white-space: normal;
     flex-wrap: wrap;
     justify-content: flex-end;
-    border-radius: 14px;
-    padding: 6px 6px 6px 12px;
+    border-radius: 12px;
+    padding: 3px 3px 3px 10px;
     max-width: 100%;
-    font-size: 11.5px;
+    font-size: 11px;
+    gap: 6px;
   }
   .work-user .u-name { max-width: 110px; }
-  .work-user button { min-height: 32px; padding: 4px 12px; font-size: 12px; }
+  .work-user button { min-height: 28px; padding: 3px 10px; font-size: 11.5px; }
   .work-head { margin-bottom: 14px; }
   .work-head h1 { font-size: 27px; }
   .work-head p { font-size: 12.5px; }
@@ -1728,16 +1732,25 @@ img, svg, table { max-width: 100%; }
 }
 @media (max-width: 640px) {
   .modal-overlay { padding: 12px; }
-  .modal-dialog { height: calc(100dvh - 24px); padding: 16px; border-radius: 16px; }
+  .modal-dialog { height: calc(100dvh - 24px); padding: 18px; border-radius: 16px; }
+  /* Тап по кнопкам/чипсам не даёт серой вспышки и контур — только своё состояние */
+  .modal-dialog button, .modal-dialog .chip, .modal-dialog input {
+    -webkit-tap-highlight-color: transparent;
+  }
+  .modal-dialog button:focus-visible, .modal-dialog .chip:focus-visible {
+    outline: none;
+    box-shadow: none;
+  }
   /* Модалка консультанта: максимум высоты — переписке, всё остальное ужато */
-  .modal-dialog .ai-chat h3 { font-size: 16px; margin-bottom: 4px; }
-  .modal-dialog .ai-chat > .muted { font-size: 12.5px; line-height: 1.55; }
-  .modal-dialog .chips { margin: 12px 0 2px; gap: 8px; }
-  .modal-dialog .chip { font-size: 12px !important; padding: 8px 14px !important; }
-  .modal-dialog .ai-history { margin: 12px 0 8px; }
-  .modal-dialog .ai-row { flex-wrap: nowrap; margin-top: 10px; }
-  .modal-dialog .ai-row input { flex: 1 1 auto; min-width: 0; }
-  .modal-dialog .ai-row button { flex-shrink: 0; min-width: 0; margin: 0; padding-left: 18px; padding-right: 18px; }
+  .modal-dialog .ai-chat h3 { font-size: 16px; margin-bottom: 6px; }
+  .modal-dialog .ai-chat > .muted { font-size: 12.5px; line-height: 1.6; }
+  .modal-dialog .chips { margin: 14px 0 4px; gap: 10px; }
+  .modal-dialog .chip { font-size: 12px !important; padding: 10px 16px !important; }
+  .modal-dialog .ai-history { margin: 14px 0 10px; gap: 18px; }
+  .modal-dialog .msg { padding: 15px 18px; }
+  .modal-dialog .ai-row { flex-wrap: wrap; margin-top: 12px; gap: 10px; }
+  .modal-dialog .ai-row input { flex: 1 1 100%; min-width: 0; }
+  .modal-dialog .ai-row button { flex: 1 1 100%; min-width: 0; margin: 0; justify-content: center; }
 }
 .modal-head {
   display: flex;
